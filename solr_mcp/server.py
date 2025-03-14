@@ -5,7 +5,7 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Union
 
-from fastmcp.server import FastMCP, Context
+from fastmcp.server import FastMCP
 from fastmcp.resources import Resource
 from loguru import logger
 
@@ -74,7 +74,7 @@ class SolrMCPServer:
     async def handle_search(self, query: str, collection: Optional[str] = None, 
                            fields: Optional[List[str]] = None, filters: Optional[List[str]] = None,
                            rows: int = 10, start: int = 0, sort: Optional[str] = None,
-                           ctx: Context = None) -> str:
+                           ctx: Any = None) -> str:
         """Handle solr_search tool requests."""
         logger.debug(f"Handling search request: {query}")
         
@@ -95,7 +95,7 @@ class SolrMCPServer:
     
     async def handle_suggestions(self, query: str, collection: Optional[str] = None,
                                 suggestion_field: str = "suggest", count: int = 5,
-                                ctx: Context = None) -> str:
+                                ctx: Any = None) -> str:
         """Handle solr_suggestions tool requests."""
         logger.debug(f"Handling suggestions request: {query}")
         
@@ -113,7 +113,7 @@ class SolrMCPServer:
     
     async def handle_facets(self, query: str, facet_fields: List[str],
                            collection: Optional[str] = None, facet_limit: int = 10,
-                           facet_mincount: int = 1, ctx: Context = None) -> str:
+                           facet_mincount: int = 1, ctx: Any = None) -> str:
         """Handle solr_facets tool requests."""
         logger.debug(f"Handling facets request: {query}, fields: {facet_fields}")
         
@@ -134,7 +134,7 @@ class SolrMCPServer:
                                   collection: Optional[str] = None, k: int = 10,
                                   filter_query: Optional[str] = None, 
                                   return_fields: Optional[List[str]] = None,
-                                  ctx: Context = None) -> str:
+                                  ctx: Any = None) -> str:
         """Handle solr_vector_search tool requests."""
         logger.debug(f"Handling vector search request, vector length: {len(vector)}")
         
@@ -157,7 +157,7 @@ class SolrMCPServer:
                                     text_field: str = "text",
                                     vector_field: str = "embedding",
                                     commit: bool = True,
-                                    ctx: Context = None) -> Dict[str, Any]:
+                                    ctx: Any = None) -> Dict[str, Any]:
         """Handle solr_embed_and_index tool requests."""
         logger.debug(f"Handling embed and index request: {document.get('id', 'unknown')}")
         
@@ -179,7 +179,7 @@ class SolrMCPServer:
                                          text_field: str = "text",
                                          vector_field: str = "embedding",
                                          commit: bool = True,
-                                         ctx: Context = None) -> Dict[str, Any]:
+                                         ctx: Any = None) -> Dict[str, Any]:
         """Handle solr_batch_embed_and_index tool requests."""
         logger.debug(f"Handling batch embed and index request: {len(documents)} documents")
         
@@ -199,7 +199,7 @@ class SolrMCPServer:
     async def handle_hybrid_search(self, query: str, collection: Optional[str] = None,
                                   vector_field: str = "embedding", blend_factor: float = 0.5,
                                   fields: Optional[List[str]] = None, filter_query: Optional[str] = None,
-                                  rows: int = 10, ctx: Context = None) -> str:
+                                  rows: int = 10, ctx: Any = None) -> str:
         """Handle solr_hybrid_search tool requests."""
         logger.debug(f"Handling hybrid search request: {query}")
         

@@ -27,6 +27,7 @@ A Python package for accessing Apache Solr indexes via Model Context Protocol (M
 4. Process and index the sample document:
    ```bash
    python scripts/process_markdown.py data/bitcoin-whitepaper.md --output data/processed/bitcoin_sections.json
+   python scripts/create_unified_collection.py unified
    python scripts/unified_index.py data/processed/bitcoin_sections.json --collection unified
    ```
 5. Run the MCP server:

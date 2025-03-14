@@ -50,7 +50,7 @@ The repository includes the Bitcoin whitepaper as a sample document. Let's proce
 python scripts/process_markdown.py data/bitcoin-whitepaper.md --output data/processed/bitcoin_sections.json
 
 # Create a unified collection
-python scripts/create_unified_collection.py --collection unified
+python scripts/create_unified_collection.py unified
 
 # Index the sections with embeddings
 python scripts/unified_index.py data/processed/bitcoin_sections.json --collection unified
@@ -70,13 +70,13 @@ You can test the different search capabilities using the demo scripts:
 
 ```bash
 # Test keyword search
-python scripts/demo_search.py --query "double spend"
+python scripts/simple_search.py "double spend" --collection unified
 
 # Test vector search
-python scripts/vector_search.py --query "how does bitcoin prevent fraud"
+python scripts/vector_search.py "how does bitcoin prevent fraud" --collection unified
 
 # Test hybrid search (combining keyword and vector)
-python scripts/demo_hybrid_search.py --query "blockchain consensus" --blend 0.5
+python scripts/simple_mcp_test.py
 ```
 
 ## Using with Claude Desktop
