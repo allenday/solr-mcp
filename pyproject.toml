@@ -21,6 +21,10 @@ uvicorn = "^0.27.1"
 python-frontmatter = "^1.1.0"
 loguru = "^0.7.3"
 kazoo = "^2.10.0"
+requests = "^2.32.3"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
@@ -28,6 +32,7 @@ mypy = "^1.8.0"
 flake8 = "^7.0.0"
 black = "^24.2.0"
 isort = "^5.13.2"
+pytest-asyncio = "^0.25.3"
 
 [build-system]
 requires = ["poetry-core"]
