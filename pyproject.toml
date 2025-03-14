@@ -18,6 +18,8 @@ numpy = "^1.26.3"
 markdown = "^3.5.2"
 fastapi = "^0.109.2"
 uvicorn = "^0.27.1"
+python-frontmatter = "^1.1.0"
+loguru = "^0.7.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
