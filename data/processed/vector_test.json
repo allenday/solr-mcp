@@ -1,0 +1,20 @@
+[
+  {
+    "id": "bitcoin-vector-test-1",
+    "title": "Bitcoin Introduction",
+    "text": "Bitcoin is a decentralized digital currency, without a central bank or single administrator, that can be sent from user to user on the peer-to-peer bitcoin network without the need for intermediaries.",
+    "source": "test-data"
+  },
+  {
+    "id": "bitcoin-vector-test-2",
+    "title": "Blockchain Technology",
+    "text": "Blockchain is a distributed ledger technology that maintains a continuously growing list of records, called blocks, which are secured from tampering and revision using cryptography.",
+    "source": "test-data"
+  },
+  {
+    "id": "bitcoin-vector-test-3",
+    "title": "Proof of Work",
+    "text": "Proof of work is a form of cryptographic zero-knowledge proof in which one party proves to others that a certain amount of computational effort has been expended for some purpose.",
+    "source": "test-data"
+  }
+]
