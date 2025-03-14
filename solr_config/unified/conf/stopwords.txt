@@ -1,4 +1,4 @@
-# Standard stopwords
+# Standard stop words
 a
 an
 and

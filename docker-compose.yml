@@ -76,15 +76,10 @@ services:
         done
         echo 'Solr is up!'
         
-        # Create the documents collection
-        echo 'Creating documents collection...'
-        solr zk upconfig -n documents_config -d /config/documents -z zookeeper:2181
-        curl -s 'http://solr1:8983/solr/admin/collections?action=CREATE&name=documents&numShards=2&replicationFactor=2&collection.configName=documents_config'
-        
-        # Create the vectors collection
-        echo 'Creating vectors collection...'
-        solr zk upconfig -n vectors_config -d /config/vectors -z zookeeper:2181
-        curl -s 'http://solr1:8983/solr/admin/collections?action=CREATE&name=vectors&numShards=2&replicationFactor=2&collection.configName=vectors_config'
+        # Create the unified collection
+        echo 'Creating unified collection...'
+        solr zk upconfig -n unified_config -d /config/unified -z zookeeper:2181
+        curl -s 'http://solr1:8983/solr/admin/collections?action=CREATE&name=unified&numShards=2&replicationFactor=2&collection.configName=unified_config'
         
         echo 'Initialization complete!'
       "
@@ -117,7 +112,7 @@ services:
     environment:
       - SOLR_MCP_ZK_HOSTS=zookeeper:2181
       - SOLR_MCP_SOLR_URL=http://solr1:8983/solr
-      - SOLR_MCP_DEFAULT_COLLECTION=vectors
+      - SOLR_MCP_DEFAULT_COLLECTION=unified
       - OLLAMA_BASE_URL=http://ollama:11434
     depends_on:
       - solr1

@@ -1,0 +1,9 @@
+# Synonym mappings
+bitcoin, btc
+blockchain, distributed ledger
+cryptocurrency, crypto
+double spend, double spending
+consensus, agreement
+transaction, tx
+block, blocks
+mining, miner, miners
