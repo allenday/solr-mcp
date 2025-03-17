@@ -9,8 +9,10 @@ import asyncio
 from typing import Dict, List, Any, Optional
 
 import pytest
-from fastmcp import client
-from fastmcp.transport.stdio_client_transport import StdioClientTransport
+from typing import Dict, Any
+
+from mcp import client
+from mcp.transport.stdio import StdioClientTransport
 
 
 class TestMCPServerIntegration:

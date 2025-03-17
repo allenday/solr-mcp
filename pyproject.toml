@@ -11,7 +11,7 @@ packages = [{include = "solr_mcp"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 pysolr = "^3.9.0"
-fastmcp = "^0.2.0"
+mcp = "^1.4.1"
 httpx = "^0.27.0"
 pydantic = "^2.6.1"
 numpy = "^1.26.3"

@@ -11,7 +11,7 @@ python scripts/unified_index.py data/processed/bitcoin_sections.json --collectio
 
 ## Project Structure
 - Python-based MCP server integrating with SolrCloud
-- Uses FastMCP framework for protocol implementation
+- Uses MCP 1.4.1 framework for protocol implementation
 - Provides document search and knowledge retrieval for AI systems
 - Supports SolrCloud collections and distributed search
 - Vector search/KNN capabilities for semantic search
@@ -59,3 +59,9 @@ python scripts/unified_index.py data/processed/bitcoin_sections.json --collectio
 - Handle Solr connection errors with appropriate retries
 - Log operations with structured logging (JSON format)
 - Return well-formatted errors following JSON-RPC 2.0 spec
+
+## Technical Details
+
+Key implementation details:
+
+- Uses MCP 1.4.1 framework for protocol implementation

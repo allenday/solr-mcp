@@ -7,10 +7,11 @@ import argparse
 import asyncio
 import os
 import sys
-from typing import Dict, List, Optional
+import json
+from typing import Dict, List, Optional, Any
 
-from fastmcp import client
-from fastmcp.transport.stdio_client_transport import StdioClientTransport
+from mcp import client
+from mcp.transport.stdio import StdioClientTransport
 from loguru import logger
 
 # Add the project root to the path
@@ -115,7 +116,6 @@ def display_results(result: Dict):
             text_content = content[0].get("text", "")
             
             # Try to parse the JSON content
-            import json
             try:
                 data = json.loads(text_content)
                 

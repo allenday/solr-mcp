@@ -10,8 +10,8 @@ import os
 import sys
 from typing import Dict, Any, Optional, List
 
-from fastmcp import client
-from fastmcp.transport.stdio import StdioClientTransport
+from mcp import client
+from mcp.transport.stdio import StdioClientTransport
 from loguru import logger
 
 # Add project root to path

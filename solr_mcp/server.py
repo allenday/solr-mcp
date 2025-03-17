@@ -5,8 +5,8 @@ import json
 import sys
 from typing import Any, Dict, List, Optional, Union
 
-from fastmcp.server import FastMCP
-from fastmcp.resources import Resource
+from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.resources import Resource
 from loguru import logger
 
 from solr_mcp.solr.client import SolrClient
@@ -225,20 +225,17 @@ class SolrMCPServer:
 
 
 def main() -> None:
-    """Main entry point for the SolrMCP server."""
+    """Main entry point."""
     parser = argparse.ArgumentParser(description="SolrMCP Server")
     parser.add_argument("--config", help="Path to config file", default=None)
     parser.add_argument("--debug", help="Enable debug mode", action="store_true")
     
     args = parser.parse_args()
     
-    mcp_server = SolrMCPServer(config_path=args.config, debug=args.debug)
+    server = SolrMCPServer(config_path=args.config, debug=args.debug)
     
-    try:
-        # FastMCP.run() is synchronous, no need for asyncio.run
-        mcp_server.server.run("stdio")
-    except KeyboardInterrupt:
-        logger.info("Server stopped")
+    # MCP.run() is synchronous, no need for asyncio.run
+    server.server.run()
 
 
 if __name__ == "__main__":
