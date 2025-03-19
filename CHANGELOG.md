@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced text analysis for hyphenated terms like "double-spending"
 - Improved synonym handling in Solr configuration
 - Fixed vector search configuration to use built-in capabilities
+- Improved error handling in Ollama embedding client with retries
+- Added proper timeout and fallback mechanisms for embedding generation
+- Fixed Solr schema URL paths in client implementation
+- Enhanced Docker healthcheck for Ollama service
 
 ### Changed
 - Migrated from FastMCP to MCP 1.4.1
