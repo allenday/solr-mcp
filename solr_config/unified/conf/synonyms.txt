@@ -2,8 +2,13 @@
 bitcoin, btc
 blockchain, distributed ledger
 cryptocurrency, crypto
-double spend, double spending
+double spend, double spending, double-spend, double-spending, doublespend, doublespending
 consensus, agreement
 transaction, tx
 block, blocks
 mining, miner, miners
+peer to peer, peer-to-peer, p2p
+cryptographic, cryptography, crypto
+distributed ledger, blockchain
+proof of work, pow
+hash, hashing

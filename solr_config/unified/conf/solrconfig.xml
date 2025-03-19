@@ -19,8 +19,14 @@
     </lst>
   </requestHandler>
 
-  <!-- KNN query parser for vector search -->
-  <queryParser name="knn" class="org.apache.solr.search.KnnQParserPlugin"/>
+  <!-- Use built-in vector search capabilities -->
+  <requestHandler name="/knn" class="solr.SearchHandler">
+    <lst name="defaults">
+      <str name="echoParams">explicit</str>
+      <str name="wt">json</str>
+      <str name="indent">true</str>
+    </lst>
+  </requestHandler>
 
   <!-- Handler for vector search -->
   <requestHandler name="/vector" class="solr.SearchHandler">

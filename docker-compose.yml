@@ -32,6 +32,11 @@ services:
     command: 
       - solr-foreground
       - -c  # Run in cloud mode
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8983/solr/"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
 
   solr2:
     image: solr:9.5
@@ -57,8 +62,10 @@ services:
     image: solr:9.5
     container_name: solr-init
     depends_on:
-      - solr1
-      - solr2
+      solr1:
+        condition: service_healthy
+      solr2:
+        condition: service_started
     networks:
       - solr-net
     environment:
@@ -76,10 +83,17 @@ services:
         done
         echo 'Solr is up!'
         
-        # Create the unified collection
-        echo 'Creating unified collection...'
+        # Delete existing collection if it exists
+        echo 'Deleting existing unified collection if it exists...'
+        curl -s 'http://solr1:8983/solr/admin/collections?action=DELETE&name=unified' || true
+        
+        # Upload the updated config
+        echo 'Uploading updated configuration...'
         solr zk upconfig -n unified_config -d /config/unified -z zookeeper:2181
-        curl -s 'http://solr1:8983/solr/admin/collections?action=CREATE&name=unified&numShards=2&replicationFactor=2&collection.configName=unified_config'
+        
+        # Create the unified collection with the updated config
+        echo 'Creating unified collection...'
+        curl -s 'http://solr1:8983/solr/admin/collections?action=CREATE&name=unified&numShards=1&replicationFactor=1&collection.configName=unified_config' || echo 'Collection creation failed - check solr logs'
         
         echo 'Initialization complete!'
       "
@@ -89,17 +103,24 @@ services:
     image: ollama/ollama:latest
     container_name: ollama
     ports:
-      - "11435:11434"
+      - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     networks:
       - solr-net
-    # Pull the nomic-embed-text model on startup
+    # Run Ollama and pull the model
+    entrypoint: ["/bin/bash", "-c"]
     command: >
-      sh -c "ollama serve &
-             sleep 10 &&
-             ollama pull nomic-embed-text &&
-             tail -f /dev/null"
+      "ollama serve &
+       sleep 10 &&
+       ollama pull nomic-embed-text &&
+       tail -f /dev/null"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:11434/api/embeddings -d '{\"model\":\"nomic-embed-text\",\"prompt\":\"test\"}' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # MCP Server
   mcp-server:
@@ -115,10 +136,10 @@ services:
       - SOLR_MCP_DEFAULT_COLLECTION=unified
       - OLLAMA_BASE_URL=http://ollama:11434
     depends_on:
-      - solr1
-      - solr2
-      - solr-init
-      - ollama
+      solr-init:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_started
     networks:
       - solr-net
     volumes:

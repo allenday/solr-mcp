@@ -10,29 +10,50 @@
   <fieldType name="double" class="solr.DoublePointField" omitNorms="true" positionIncrementGap="0"/>
   <fieldType name="date" class="solr.DatePointField" omitNorms="true" positionIncrementGap="0"/>
   
-  <!-- Text field with standard analyzer for better search -->
+  <!-- Improved text field with stemming and better tokenization -->
   <fieldType name="text_general" class="solr.TextField" positionIncrementGap="100">
     <analyzer type="index">
       <tokenizer class="solr.StandardTokenizerFactory"/>
       <filter class="solr.StopFilterFactory" ignoreCase="true" words="stopwords.txt"/>
+      <filter class="solr.WordDelimiterGraphFilterFactory" 
+              generateWordParts="1" 
+              generateNumberParts="1" 
+              catenateWords="1" 
+              catenateNumbers="1" 
+              catenateAll="0" 
+              splitOnCaseChange="1"/>
       <filter class="solr.LowerCaseFilterFactory"/>
+      <filter class="solr.EnglishMinimalStemFilterFactory"/>
+      <filter class="solr.RemoveDuplicatesTokenFilterFactory"/>
     </analyzer>
     <analyzer type="query">
       <tokenizer class="solr.StandardTokenizerFactory"/>
       <filter class="solr.StopFilterFactory" ignoreCase="true" words="stopwords.txt"/>
+      <filter class="solr.WordDelimiterGraphFilterFactory" 
+              generateWordParts="1" 
+              generateNumberParts="1" 
+              catenateWords="0" 
+              catenateNumbers="0" 
+              catenateAll="0" 
+              splitOnCaseChange="1"/>
       <filter class="solr.SynonymGraphFilterFactory" synonyms="synonyms.txt" ignoreCase="true" expand="true"/>
       <filter class="solr.LowerCaseFilterFactory"/>
+      <filter class="solr.EnglishMinimalStemFilterFactory"/>
+      <filter class="solr.RemoveDuplicatesTokenFilterFactory"/>
     </analyzer>
   </fieldType>
   
   <!-- Vector field type for embeddings -->
   <fieldType name="knn_vector" class="solr.DenseVectorField" 
-             vectorDimension="768" similarityFunction="cosine"/>
+             vectorDimension="768" similarityFunction="cosine">
+    <vectorEncoding>FLOAT32</vectorEncoding>  
+  </fieldType>
   
   <!-- Fields for document -->
   <field name="id" type="string" indexed="true" stored="true" required="true" multiValued="false"/>
   <field name="title" type="text_general" indexed="true" stored="true"/>
   <field name="content" type="text_general" indexed="true" stored="true"/>
+  <field name="text" type="text_general" indexed="true" stored="true"/>
   <field name="section" type="string" indexed="true" stored="true"/>
   <field name="section_number" type="int" indexed="true" stored="true"/>
   <field name="source" type="string" indexed="true" stored="true"/>
@@ -59,9 +80,16 @@
   <!-- Required fields -->
   <uniqueKey>id</uniqueKey>
   
-  <!-- Field for full-text search -->
+  <!-- Expanded field for full-text search -->
   <copyField source="title" dest="_text_"/>
   <copyField source="content" dest="_text_"/>
+  <copyField source="text" dest="_text_"/>
+  <copyField source="section" dest="_text_"/>
+  <copyField source="source" dest="_text_"/>
+  <copyField source="author" dest="_text_"/>
+  <copyField source="tags" dest="_text_"/>
+  <copyField source="*_t" dest="_text_"/>
+  <copyField source="*_s" dest="_text_"/>
   
   <!-- Special fields -->
   <field name="_text_" type="text_general" indexed="true" stored="false" multiValued="true"/>
