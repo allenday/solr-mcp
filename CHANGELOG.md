@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial project structure
-- FastMCP server implementation
+- MCP server implementation
 - Solr client with search, vector search, and hybrid search capabilities
 - Embedding generation via Ollama using nomic-embed-text
 - Docker configuration for SolrCloud and ZooKeeper
@@ -21,3 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improved search query transformation for better results
 - Fixed phrase proximity searches with `~5` operator
 - Proper field naming for Solr compatibility
+- Enhanced text analysis for hyphenated terms like "double-spending"
+- Improved synonym handling in Solr configuration
+- Fixed vector search configuration to use built-in capabilities
+
+### Changed
+- Migrated from FastMCP to MCP 1.4.1
+
+## [0.1.0] - 2024-03-17
+### Added
+- Initial release
+- MCP server implementation
+- Integration with SolrCloud
+- Support for basic search operations
+- Vector search capabilities
+- Hybrid search functionality
+- Embedding generation and indexing
