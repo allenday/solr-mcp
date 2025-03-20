@@ -61,6 +61,7 @@
   <field name="published_date" type="date" indexed="true" stored="true"/>
   <field name="author" type="string" indexed="true" stored="true" multiValued="true"/>
   <field name="tags" type="string" indexed="true" stored="true" multiValued="true"/>
+  <field name="embedding" type="knn_vector" indexed="true" stored="false"/>
   
   <!-- Vector embedding field -->
   <field name="content_vector" type="knn_vector" indexed="true" stored="true"/>
@@ -80,6 +81,10 @@
   <!-- Required fields -->
   <uniqueKey>id</uniqueKey>
   
+  <!-- Special fields -->
+  <field name="_text_" type="text_general" indexed="true" stored="false" multiValued="true"/>
+  <field name="_version_" type="long" indexed="true" stored="true"/>
+  
   <!-- Expanded field for full-text search -->
   <copyField source="title" dest="_text_"/>
   <copyField source="content" dest="_text_"/>
@@ -90,9 +95,5 @@
   <copyField source="tags" dest="_text_"/>
   <copyField source="*_t" dest="_text_"/>
   <copyField source="*_s" dest="_text_"/>
-  
-  <!-- Special fields -->
-  <field name="_text_" type="text_general" indexed="true" stored="false" multiValued="true"/>
-  <field name="_version_" type="long" indexed="true" stored="true"/>
 
 </schema>
