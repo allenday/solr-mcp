@@ -1,18 +1,62 @@
 """SolrCloud client implementation."""
 
 import json
+import logging
 import os
+import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import urllib.parse
+import re
 
 import numpy as np
 import pysolr
+import requests
 from kazoo.client import KazooClient
 from loguru import logger
 from pydantic import BaseModel, Field
+import sqlglot
+from sqlglot import parse_one, exp
+from sqlglot.expressions import Select, From, Column, Identifier, Where, Binary
 
+from solr_mcp.utils import SolrUtils
 from solr_mcp.embeddings.client import OllamaClient
-from solr_mcp.utils import SolrUtils, FIELD_TYPE_MAPPING, SYNTHETIC_SORT_FIELDS
+
+logger = logging.getLogger(__name__)
+
+class SolrError(Exception):
+    """Custom exception for Solr-related errors."""
+    pass
+
+# Field type mapping for sorting
+FIELD_TYPE_MAPPING = {
+    "string": "string",
+    "text_general": "text",
+    "text_en": "text",
+    "int": "numeric",
+    "long": "numeric",
+    "float": "numeric",
+    "double": "numeric",
+    "date": "date",
+    "boolean": "boolean"
+}
+
+# Synthetic fields that can be used for sorting
+SYNTHETIC_SORT_FIELDS = {
+    "score": {
+        "type": "numeric",
+        "directions": ["asc", "desc"],
+        "default_direction": "desc",
+        "searchable": True
+    },
+    "_docid_": {
+        "type": "numeric",
+        "directions": ["asc", "desc"],
+        "default_direction": "asc",
+        "searchable": False,
+        "warning": "Internal Lucene document ID. Not stable across restarts or reindexing."
+    }
+}
 
 class SolrConfig(BaseModel):
     """Solr configuration model."""
@@ -46,62 +90,47 @@ class SolrClient:
         """Initialize the SolrClient.
         
         Args:
-            config_path: Path to the configuration file
+            config_path: Path to configuration file
         """
+        self.logger = logging.getLogger(__name__)
         self.config = self._load_config(config_path)
+        
+        # Initialize client cache
         self.solr_clients: Dict[str, pysolr.Solr] = {}
         
-        # Try to initialize ZooKeeper client
+        # Initialize ZooKeeper client
         try:
-            self.zk_client = self._init_zookeeper()
-            logger.info(f"Connected to ZooKeeper: {','.join(self.config.zookeeper_hosts)}")
+            self.zk_client = KazooClient(
+                hosts=",".join(self.config.zookeeper_hosts),
+                timeout=self.config.connection_timeout
+            )
+            self.zk_client.start()
+            logger.info(f"Connected to ZooKeeper: {self.config.zookeeper_hosts}")
         except Exception as e:
-            logger.warning(f"Failed to connect to ZooKeeper: {e}")
-            logger.warning("Will continue without ZooKeeper connectivity - some features may be limited")
-            # Create a dummy client to avoid failures later
-            self.zk_client = None
+            logger.error(f"Error connecting to ZooKeeper: {e}")
+            raise
         
-        # Initialize Ollama client for embeddings
+        # Initialize Ollama client if available
         try:
-            self.ollama_client = OllamaClient()
+            self.ollama = OllamaClient()
         except Exception as e:
             logger.warning(f"Failed to initialize Ollama client: {e}")
             logger.warning("Vector operations will be unavailable")
-            self.ollama_client = None
+            self.ollama = None
         
-        # Validate default collection
-        if not self.config.default_collection:
-            logger.warning("No default collection specified in config")
-        
-        # Initialize default collection
+        # Initialize Solr client for default collection
         try:
             self._get_or_create_client(self.config.default_collection)
             logger.info(f"Connected to Solr collection: {self.config.default_collection}")
         except Exception as e:
-            logger.error(f"Failed to connect to default collection '{self.config.default_collection}': {e}")
-            logger.warning("Will continue but search operations may fail")
-        
-        # Cache searchable and sortable fields
-        try:
-            self.searchable_fields = self._get_searchable_fields()
-            self.sortable_fields = self._get_sortable_fields()
+            logger.error(f"Error connecting to Solr: {e}")
+            raise
             
-            logger.info(f"SolrClient initialized with collections: {self.list_collections()}")
-            logger.info(f"Searchable fields: {self.searchable_fields}")
-            logger.info(f"Sortable fields: {self.sortable_fields}")
-        except Exception as e:
-            logger.error(f"Error initializing field information: {e}")
-            # Set defaults as fallback
-            self.searchable_fields = ['_text_']
-            self.sortable_fields = {
-                "score": {
-                    "type": "numeric",
-                    "directions": ["asc", "desc"],
-                    "default_direction": "desc",
-                    "searchable": True
-                }
-            }
-    
+        # Initialize cache for field information per collection
+        self._field_cache: Dict[str, Dict[str, Any]] = {}
+        
+        logger.info(f"SolrClient initialized with collections: {self.list_collections()}")
+
     def _load_config(self, config_path: Optional[str] = None) -> SolrConfig:
         """Load configuration from file or environment.
         
@@ -131,17 +160,6 @@ class SolrClient:
             config_data["default_collection"] = env_collection
         
         return SolrConfig(**config_data)
-    
-    def _init_zookeeper(self) -> KazooClient:
-        """Initialize ZooKeeper client.
-        
-        Returns:
-            KazooClient instance
-        """
-        zk_hosts = ",".join(self.config.zookeeper_hosts)
-        client = KazooClient(hosts=zk_hosts)
-        client.start()
-        return client
     
     def _get_or_create_client(self, collection: str) -> pysolr.Solr:
         """Get or create a Solr client for the specified collection.
@@ -173,24 +191,20 @@ class SolrClient:
             return collections
         return []
     
-    def _format_search_results(self, results: pysolr.Results) -> str:
+    def _format_search_results(self, results: pysolr.Results, start: int = 0) -> str:
         """Format Solr search results for LLM consumption.
         
         Args:
             results: pysolr Results object
+            start: Start offset used in the search
             
         Returns:
             Formatted results as JSON string
         """
         try:
-            # Get the start parameter from the response header params
-            response_header = getattr(results, "responseHeader", {})
-            params = response_header.get("params", {})
-            start = int(params.get("start", 0))
-
             formatted = {
                 "numFound": results.hits,
-                "start": start,
+                "start": start,  # Always include the start parameter
                 "maxScore": getattr(results, "max_score", None),
                 "docs": list(results.docs) if hasattr(results, "docs") else [],
             }
@@ -212,522 +226,524 @@ class SolrClient:
                     "docs": [str(doc) for doc in results.docs] if hasattr(results, "docs") else []
                 })
         except Exception as e:
-            logger.exception(f"Error formatting search results: {e}")
+            logger.error(f"Error formatting search results: {e}")
             return json.dumps({"error": str(e)})
     
-    async def search(
-        self,
-        query: str,
-        collection: Optional[str] = None,
-        fields: Optional[List[str]] = None,
-        filters: Optional[Union[str, List[str]]] = None,
-        sort: Optional[str] = None,
-        start: int = 0,
-        rows: int = 10,
-        **kwargs: Any,
-    ) -> str:
-        """Perform a search query against Solr.
+    def _get_collection_fields(self, collection: str) -> Dict[str, Any]:
+        """Get or load field information for a collection.
         
         Args:
-            query: The search query string
-            collection: Collection to search (defaults to config default)
-            fields: List of fields to return
-            filters: Filter query(s) to apply
-            sort: Sort string in format "field direction" or just "field"
-            start: Start offset for pagination
-            rows: Number of results to return
-            **kwargs: Additional parameters to pass to Solr
-            
-        Returns:
-            JSON string containing search results and metadata
-        """
-        client = self._get_or_create_client(collection or self.config.default_collection)
-        
-        # Sanitize inputs
-        sanitized_fields = SolrUtils.sanitize_fields(fields)
-        sanitized_filters = SolrUtils.sanitize_filters(filters)
-        sanitized_sort = SolrUtils.sanitize_sort(sort, self.sortable_fields)
-        
-        # Build search kwargs
-        search_kwargs = {
-            "defType": "edismax",
-            "mm": "100%",
-            "tie": 0.1,
-            "qf": " ".join(self.searchable_fields),
-            "fl": "*,score",
-            "start": max(0, int(start)),  # Ensure non-negative
-            "rows": max(1, min(int(rows), 1000))  # Limit range
-        }
-        
-        if sanitized_fields:
-            search_kwargs["fl"] = ",".join(sanitized_fields)
-        if sanitized_filters:
-            search_kwargs["fq"] = sanitized_filters
-        if sanitized_sort:
-            search_kwargs["sort"] = sanitized_sort
-            
-        # Add any additional kwargs (consider sanitizing these too)
-        search_kwargs.update(kwargs)
-        
-        try:
-            results = client.search(query, **search_kwargs)
-            return self._format_search_results(results)
-        except Exception as e:
-            logger.error(f"Search failed: {e}")
-            raise
-    
-    async def get_suggestions(
-        self,
-        query: str,
-        collection: Optional[str] = None,
-        suggestion_field: str = "suggest",
-        count: int = 5,
-        **kwargs: Any,
-    ) -> str:
-        """Get search suggestions from Solr.
-        
-        Args:
-            query: Partial query to get suggestions for
             collection: Collection name
-            suggestion_field: Suggestion handler name
-            count: Number of suggestions to return
-            **kwargs: Additional parameters
             
         Returns:
-            JSON string with suggestions
+            Dict containing searchable and sortable fields for the collection
         """
-        collection = collection or self.config.default_collection
-        client = self._get_or_create_client(collection)
-        
-        handler = f"{collection}/{suggestion_field}"
-        params = {
-            "q": query,
-            "count": count,
-            "wt": "json",
-            **kwargs
-        }
-        
-        logger.debug(f"Getting suggestions for: {query}")
-        
-        try:
-            response = client._send_request("get", handler, params)
-            return json.dumps(response)
-        except Exception as e:
-            logger.exception(f"Error getting suggestions: {e}")
-            raise
-    
-    async def get_facets(
-        self,
-        query: str,
-        facet_fields: List[str],
-        collection: Optional[str] = None,
-        facet_limit: int = 10,
-        facet_mincount: int = 1,
-        **kwargs: Any,
-    ) -> str:
-        """Get facet information from Solr.
-        
-        Args:
-            query: Search query
-            facet_fields: Fields to facet on
-            collection: Collection name
-            facet_limit: Maximum number of facet values
-            facet_mincount: Minimum count for facet values
-            **kwargs: Additional parameters
-            
-        Returns:
-            JSON string with facet information
-        """
-        collection = collection or self.config.default_collection
-        client = self._get_or_create_client(collection)
-        
-        search_kwargs = {
-            "facet": "on",
-            "facet.field": facet_fields,
-            "facet.limit": facet_limit,
-            "facet.mincount": facet_mincount,
-            "rows": 0,  # We only need facets, not results
-            **kwargs
-        }
-        
-        logger.debug(f"Getting facets for query: {query} on fields: {facet_fields}")
-        
-        try:
-            results = client.search(query, **search_kwargs)
-            return json.dumps({"facets": results.facets})
-        except Exception as e:
-            logger.exception(f"Error getting facets: {e}")
-            raise
-    
-    async def vector_search(
-        self,
-        vector: List[float],
-        vector_field: str = "embedding",
-        collection: Optional[str] = None,
-        k: int = 10,
-        filter_query: Optional[str] = None,
-        return_fields: Optional[List[str]] = None,
-        **kwargs: Any,
-    ) -> str:
-        """Perform a vector search using KNN in Solr.
-        
-        Args:
-            vector: Dense vector embedding to search with
-            vector_field: Field containing vector embeddings
-            collection: Collection name
-            k: Number of nearest neighbors to retrieve
-            filter_query: Optional filter query
-            return_fields: Fields to return
-            **kwargs: Additional parameters
-            
-        Returns:
-            JSON string with vector search results
-        """
-        collection = collection or self.config.default_collection
-        client = self._get_or_create_client(collection)
-        
-        # Format vector as expected by Solr
-        vector_str = "[" + ",".join(str(v) for v in vector) + "]"
-        
-        # Build the KNN query
-        knn_query = f"{{!knn f={vector_field} topK={k}}}{vector_str}"
-        
-        search_kwargs = {}
-        
-        if return_fields:
-            search_kwargs["fl"] = ",".join(return_fields)
-        
-        if filter_query:
-            search_kwargs["fq"] = filter_query
-        
-        # Add any additional kwargs
-        search_kwargs.update(kwargs)
-        
-        logger.debug(f"Solr vector search with params: {search_kwargs}")
-        
-        try:
-            results = client.search(knn_query, **search_kwargs)
-            return self._format_search_results(results)
-        except Exception as e:
-            logger.exception(f"Error in vector search: {e}")
-            raise
-    
-    async def index_document_with_vector(
-        self,
-        document: Dict[str, Any],
-        vector: Optional[List[float]] = None,
-        vector_field: str = "embedding",
-        text_field: str = "text",
-        collection: Optional[str] = None,
-        commit: bool = True,
-    ) -> bool:
-        """Index a document with vector embedding.
-        
-        Args:
-            document: Document fields
-            vector: Vector embedding (if None, will be generated)
-            vector_field: Field name for the vector
-            text_field: Field name to use for generating embedding if vector is None
-            collection: Collection name
-            commit: Whether to commit immediately
-            
-        Returns:
-            Success status
-        """
-        collection = collection or self.config.default_collection
-        client = self._get_or_create_client(collection)
-        
-        # Add the vector to the document
-        doc = document.copy()
-        
-        # Generate embedding if not provided
-        if vector is None:
-            if text_field not in doc:
-                raise ValueError(f"Document must contain '{text_field}' field to generate embedding")
-            
+        if collection not in self._field_cache:
             try:
-                vector = await self.ollama_client.get_embedding(doc[text_field])
-                logger.info(f"Generated embedding for document with id: {doc.get('id', 'unknown')}")
-            except Exception as e:
-                logger.error(f"Error generating embedding: {e}")
-                raise
-        
-        doc[vector_field] = vector
-        
-        try:
-            client.add([doc], commit=commit)
-            logger.info(f"Document indexed with vector in {collection}")
-            return True
-        except Exception as e:
-            logger.exception(f"Error indexing document with vector: {e}")
-            raise
-            
-    async def index_document_with_generated_embedding(
-        self,
-        document: Dict[str, Any],
-        text_field: str = "text",
-        vector_field: str = "embedding",
-        collection: Optional[str] = None,
-        commit: bool = True,
-    ) -> bool:
-        """Index a document with automatically generated vector embedding.
-        
-        Args:
-            document: Document fields
-            text_field: Field name to use for generating embedding
-            vector_field: Field name for the vector
-            collection: Collection name
-            commit: Whether to commit immediately
-            
-        Returns:
-            Success status
-        """
-        return await self.index_document_with_vector(
-            document=document,
-            vector=None,
-            vector_field=vector_field,
-            text_field=text_field,
-            collection=collection,
-            commit=commit
-        )
-    
-    async def batch_index_with_vectors(
-        self,
-        documents: List[Dict[str, Any]],
-        vectors: Optional[List[List[float]]] = None,
-        vector_field: str = "embedding",
-        text_field: str = "text",
-        collection: Optional[str] = None,
-        commit: bool = True,
-    ) -> bool:
-        """Batch index documents with vector embeddings.
-        
-        Args:
-            documents: List of documents
-            vectors: List of vector embeddings (if None, will be generated)
-            vector_field: Field name for vectors
-            text_field: Field name to use for generating embeddings if vectors is None
-            collection: Collection name
-            commit: Whether to commit immediately
-            
-        Returns:
-            Success status
-        """
-        collection = collection or self.config.default_collection
-        client = self._get_or_create_client(collection)
-        
-        # Generate embeddings if not provided
-        if vectors is None:
-            try:
-                # Extract text from documents
-                texts = []
-                for doc in documents:
-                    if text_field not in doc:
-                        raise ValueError(f"All documents must contain '{text_field}' field to generate embeddings")
-                    texts.append(doc[text_field])
+                searchable_fields = self._get_searchable_fields(collection)
+                sortable_fields = self._get_sortable_fields(collection)
                 
-                # Generate embeddings
-                vectors = await self.ollama_client.get_embeddings(texts)
-                logger.info(f"Generated embeddings for {len(texts)} documents")
-            except Exception as e:
-                logger.error(f"Error generating embeddings: {e}")
-                raise
-        elif len(documents) != len(vectors):
-            raise ValueError("Number of documents must match number of vectors")
-        
-        # Add vectors to documents
-        docs_with_vectors = []
-        for doc, vec in zip(documents, vectors):
-            doc_copy = doc.copy()
-            doc_copy[vector_field] = vec
-            docs_with_vectors.append(doc_copy)
-        
-        try:
-            client.add(docs_with_vectors, commit=commit)
-            logger.info(f"Batch indexed {len(docs_with_vectors)} documents with vectors in {collection}")
-            return True
-        except Exception as e:
-            logger.exception(f"Error batch indexing documents with vectors: {e}")
-            raise
-    
-    async def batch_index_with_generated_embeddings(
-        self,
-        documents: List[Dict[str, Any]],
-        text_field: str = "text",
-        vector_field: str = "embedding",
-        collection: Optional[str] = None,
-        commit: bool = True,
-    ) -> bool:
-        """Batch index documents with automatically generated vector embeddings.
-        
-        Args:
-            documents: List of documents
-            text_field: Field name to use for generating embeddings
-            vector_field: Field name for vectors
-            collection: Collection name
-            commit: Whether to commit immediately
-            
-        Returns:
-            Success status
-        """
-        return await self.batch_index_with_vectors(
-            documents=documents,
-            vectors=None,
-            vector_field=vector_field,
-            text_field=text_field,
-            collection=collection,
-            commit=commit
-        )
-
-    def _get_sortable_fields(self) -> Dict[str, Dict[str, Any]]:
-        """Get all fields that can be used for sorting.
-        
-        Returns:
-            Dict mapping field names to their sort properties:
-            {
-                "field_name": {
-                    "type": "string|numeric|date|boolean",
-                    "directions": ["asc", "desc"],
-                    "default_direction": "asc",
-                    "searchable": bool,  # Whether field can be used in search queries
-                    "warning": str,      # Optional warning about field usage
+                self._field_cache[collection] = {
+                    "searchable_fields": searchable_fields,
+                    "sortable_fields": sortable_fields,
+                    "last_updated": time.time()
                 }
-            }
-        """
-        collection = self.config.default_collection
-        client = self._get_or_create_client(collection)
-        
-        try:
-            # Try getting schema using Solr admin API
-            try:
-                schema_url = f"admin/collections/{collection}/schema/fields"
-                logger.debug(f"Getting sortable fields from schema URL: {schema_url}")
-                response = client._send_request('get', schema_url)
-            except Exception as e:
-                logger.warning(f"Error getting schema fields for sorting: {e}")
-                logger.info("Fallback: trying direct URL with query that returns field info")
                 
-                # Fallback - use direct select query to get the fields
-                import requests
+                logger.info(f"Loaded field information for collection {collection}")
+                logger.debug(f"Searchable fields: {searchable_fields}")
+                logger.debug(f"Sortable fields: {sortable_fields}")
+            except Exception as e:
+                logger.error(f"Error loading field information for collection {collection}: {e}")
+                # Use safe defaults
+                self._field_cache[collection] = {
+                    "searchable_fields": ['_text_'],
+                    "sortable_fields": {
+                        "score": {
+                            "type": "numeric",
+                            "directions": ["asc", "desc"],
+                            "default_direction": "desc",
+                            "searchable": True
+                        }
+                    },
+                    "last_updated": time.time()
+                }
+        
+        return self._field_cache[collection]
+
+    def _get_searchable_fields(self, collection: str) -> List[str]:
+        """Get list of searchable fields for a collection.
+
+        Args:
+            collection: Collection name
+
+        Returns:
+            List of field names that can be searched
+        """
+        try:
+            # Try schema API first
+            schema_url = f"{collection}/schema/fields?wt=json"
+            self.logger.debug(f"Getting searchable fields from schema URL: {schema_url}")
+            full_url = f"{self.config.solr_base_url}/{schema_url}"
+            self.logger.debug(f"Full URL: {full_url}")
+            
+            response = requests.get(full_url)
+            fields_data = response.json()
+            
+            searchable_fields = []
+            for field in fields_data.get("fields", []):
+                field_name = field.get("name")
+                field_type = field.get("type")
+                
+                # Skip special fields
+                if field_name.startswith("_") and field_name not in ["_text_"]:
+                    continue
+                    
+                # Add text and string fields
+                if field_type in ["text_general", "string"] or "text" in field_type:
+                    self.logger.debug(f"Found searchable field: {field_name}, type: {field_type}")
+                    searchable_fields.append(field_name)
+            
+            # Add known content fields
+            content_fields = ["content", "title", "_text_"]
+            for field in content_fields:
+                if field not in searchable_fields:
+                    searchable_fields.append(field)
+                    
+            self.logger.info(f"Using searchable fields for collection {collection}: {searchable_fields}")
+            return searchable_fields
+            
+        except Exception as e:
+            self.logger.warning(f"Error getting schema fields: {str(e)}")
+            self.logger.info("Fallback: trying direct URL with query that returns field info")
+            
+            try:
+                client = self._get_or_create_client(collection)
                 direct_url = f"{client.url}/select?q=*:*&rows=0&wt=json"
-                logger.debug(f"Trying direct URL: {direct_url}")
-                response = requests.get(direct_url, timeout=self.config.connection_timeout).json()
+                self.logger.debug(f"Trying direct URL: {direct_url}")
+                
+                response = requests.get(direct_url)
+                response_data = response.json()
+                
+                # Extract fields from response header
+                fields = []
+                if "responseHeader" in response_data:
+                    header = response_data["responseHeader"]
+                    if "params" in header and "fl" in header["params"]:
+                        fields = header["params"]["fl"].split(",")
+                
+                # Add known searchable fields
+                fields.extend(["content", "title", "_text_"])
+                searchable_fields = list(set(fields))  # Remove duplicates
+                
+            except Exception as e2:
+                self.logger.error(f"Error getting searchable fields: {str(e2)}")
+                self.logger.info("Using fallback searchable fields: ['content', 'title', '_text_']")
+                searchable_fields = ["content", "title", "_text_"]
+                
+            self.logger.info(f"Using searchable fields for collection {collection}: {searchable_fields}")
+            return searchable_fields
+
+    def _get_sortable_fields(self, collection: str) -> Dict[str, Dict[str, Any]]:
+        """Get list of sortable fields and their properties for a collection.
+
+        Args:
+            collection: Collection name
+
+        Returns:
+            Dict mapping field names to their properties
+        """
+        try:
+            # Try schema API first
+            schema_url = f"{collection}/schema/fields?wt=json"
+            self.logger.debug(f"Getting sortable fields from schema URL: {schema_url}")
+            full_url = f"{self.config.solr_base_url}/{schema_url}"
+            self.logger.debug(f"Full URL: {full_url}")
+            
+            response = requests.get(full_url)
+            fields_data = response.json()
             
             sortable_fields = {}
-            
-            # Process schema fields
-            for field in response.get('fields', []):
-                field_name = field.get('name')
-                field_type = field.get('type')
-                multi_valued = field.get('multiValued', False)
-                doc_values = field.get('docValues', False)
+            for field in fields_data.get("fields", []):
+                field_name = field.get("name")
+                field_type = field.get("type", "")
                 
-                # Skip special fields, multi-valued fields, and fields without a recognized type
-                if (field_name.startswith('_') and field_name not in SYNTHETIC_SORT_FIELDS) or \
-                   multi_valued or \
-                   field_type not in FIELD_TYPE_MAPPING:
+                # Skip special fields except _docid_
+                if field_name.startswith("_") and field_name != "_docid_":
                     continue
                 
+                # Determine field type category
+                field_category = "text"
+                if "date" in field_type or field_type == "pdate" or field_name.endswith("_dt"):
+                    field_category = "date"
+                elif "int" in field_type or "long" in field_type or "float" in field_type or "double" in field_type or field_type.startswith("p"):
+                    field_category = "numeric"
+                elif field_type == "string":
+                    field_category = "string"
+                
                 # Add field to sortable fields
+                self.logger.debug(f"Found sortable field: {field_name}, type: {field_type}")
                 sortable_fields[field_name] = {
-                    "type": FIELD_TYPE_MAPPING[field_type],
+                    "type": field_category,
                     "directions": ["asc", "desc"],
-                    "default_direction": "asc" if FIELD_TYPE_MAPPING[field_type] in ["string", "numeric", "date"] else "desc",
-                    "searchable": True  # Regular schema fields are searchable
+                    "default_direction": "asc" if field_category in ["string", "date"] else "desc",
+                    "searchable": True
                 }
             
-            # Add synthetic fields
-            sortable_fields.update(SYNTHETIC_SORT_FIELDS)
+            # Add special fields
+            sortable_fields["score"] = {
+                "type": "numeric",
+                "directions": ["asc", "desc"],
+                "default_direction": "desc",
+                "searchable": True
+            }
             
+            if "_docid_" not in sortable_fields:
+                sortable_fields["_docid_"] = {
+                    "type": "numeric",
+                    "directions": ["asc", "desc"],
+                    "default_direction": "asc",
+                    "searchable": False,
+                    "warning": "Internal Lucene document ID. Not stable across restarts or reindexing."
+                }
+            
+            # Add known date fields if not already present
+            known_date_fields = ["date_indexed_dt", "created_dt", "modified_dt"]
+            for field in known_date_fields:
+                if field not in sortable_fields:
+                    sortable_fields[field] = {
+                        "type": "date",
+                        "directions": ["asc", "desc"],
+                        "default_direction": "asc",
+                        "searchable": True
+                    }
+            
+            self.logger.info(f"Using detected and known sortable fields for collection {collection}: {list(sortable_fields.keys())}")
             return sortable_fields
             
         except Exception as e:
-            logger.error(f"Error getting sortable fields: {e}")
-            # Return only the guaranteed score field - _docid_ is not recommended as a fallback
-            return {
-                "score": {
+            self.logger.warning(f"Error getting schema fields for sorting: {str(e)}")
+            self.logger.info("Fallback: trying direct URL with query that returns field info")
+            
+            try:
+                client = self._get_or_create_client(collection)
+                direct_url = f"{client.url}/select?q=*:*&rows=0&wt=json"
+                self.logger.debug(f"Trying direct URL: {direct_url}")
+                
+                response = requests.get(direct_url)
+                response_data = response.json()
+                
+                # Extract fields from response header
+                fields = []
+                if "responseHeader" in response_data:
+                    header = response_data["responseHeader"]
+                    if "params" in header and "fl" in header["params"]:
+                        fields = header["params"]["fl"].split(",")
+                
+                # Create sortable fields dict with basic properties
+                sortable_fields = {}
+                for field in fields:
+                    if field.startswith("_") and field != "_docid_":
+                        continue
+                    sortable_fields[field] = {
+                        "type": "string",  # Default to string type
+                        "directions": ["asc", "desc"],
+                        "default_direction": "asc",
+                        "searchable": True
+                    }
+                
+                # Add special fields
+                sortable_fields["score"] = {
                     "type": "numeric",
                     "directions": ["asc", "desc"],
                     "default_direction": "desc",
                     "searchable": True
                 }
-            }
+                
+                if "_docid_" not in sortable_fields:
+                    sortable_fields["_docid_"] = {
+                        "type": "numeric",
+                        "directions": ["asc", "desc"],
+                        "default_direction": "asc",
+                        "searchable": False,
+                        "warning": "Internal Lucene document ID. Not stable across restarts or reindexing."
+                    }
+                
+            except Exception as e2:
+                self.logger.error(f"Error getting sortable fields: {str(e2)}")
+                # Return only score as sortable field
+                sortable_fields = {
+                    "score": {
+                        "type": "numeric",
+                        "directions": ["asc", "desc"],
+                        "default_direction": "desc",
+                        "searchable": True
+                    }
+                }
+            
+            self.logger.info(f"Using detected and known sortable fields for collection {collection}: {list(sortable_fields.keys())}")
+            return sortable_fields
 
     def _validate_sort(self, sort: Optional[str]) -> Optional[str]:
         """Validate and normalize sort parameter.
         
         Args:
-            sort: Sort string in format "field direction" or "field"
+            sort: Sort string in format "field direction" or just "field"
             
         Returns:
-            Normalized sort string or None if invalid
+            Validated sort string or None if sort is None
             
         Raises:
-            ValueError: If sort field or direction is invalid
+            ValueError: If sort field is invalid or direction is invalid
         """
         if not sort:
             return None
-        
+            
         parts = sort.strip().split()
-        field = parts[0]
-        direction = parts[1].lower() if len(parts) > 1 else None
+        if len(parts) == 1:
+            field = parts[0]
+            direction = None
+        elif len(parts) == 2:
+            field, direction = parts
+        else:
+            raise ValueError(f"Invalid sort format: {sort}")
+            
+        # Get sortable fields for the collection
+        sortable_fields = self._get_collection_fields(self.config.default_collection)["sortable_fields"]
         
         # Check if field is sortable
-        if field not in self.sortable_fields:
-            raise ValueError(f"Field '{field}' is not sortable. Available sort fields: {list(self.sortable_fields.keys())}")
-        
-        field_info = self.sortable_fields[field]
-        
-        # Use specified direction or default
+        if field not in sortable_fields:
+            raise ValueError(f"Field '{field}' is not sortable")
+            
+        # Validate direction if provided
         if direction:
-            if direction not in field_info["directions"]:
-                raise ValueError(f"Invalid sort direction '{direction}' for field '{field}'. Allowed directions: {field_info['directions']}")
+            valid_directions = sortable_fields[field]["directions"]
+            if direction.lower() not in [d.lower() for d in valid_directions]:
+                raise ValueError(f"Invalid sort direction '{direction}' for field '{field}'")
         else:
-            direction = field_info["default_direction"]
-        
+            # Use default direction for field
+            direction = sortable_fields[field]["default_direction"]
+            
         return f"{field} {direction}"
 
-    def _get_searchable_fields(self) -> List[str]:
-        """Get all text and string fields from the schema.
+    def _validate_fields(self, collection: str, fields: List[str]) -> None:
+        """Validate that the requested fields exist in the collection.
         
-        Returns:
-            List of field names that can be searched
+        Args:
+            collection: Collection name
+            fields: List of field names to validate
+            
+        Raises:
+            SolrError: If any field is not valid for the collection
         """
-        collection = self.config.default_collection
-        client = self._get_or_create_client(collection)
+        collection_info = self._get_collection_fields(collection)
+        searchable_fields = collection_info["searchable_fields"]
+        sortable_fields = collection_info["sortable_fields"]
         
+        # Combine all valid fields
+        valid_fields = set(searchable_fields) | set(sortable_fields.keys())
+        
+        # Check each requested field
+        invalid_fields = [f for f in fields if f not in valid_fields]
+        if invalid_fields:
+            raise SolrError(f"Invalid fields for collection {collection}: {', '.join(invalid_fields)}")
+
+    def _validate_sort_fields(self, collection: str, sort_fields: List[str]) -> None:
+        """Validate that the requested sort fields are sortable in the collection.
+        
+        Args:
+            collection: Collection name
+            sort_fields: List of field names to validate for sorting
+            
+        Raises:
+            SolrError: If any field is not sortable in the collection
+        """
+        collection_info = self._get_collection_fields(collection)
+        sortable_fields = collection_info["sortable_fields"]
+        
+        # Check each sort field
+        invalid_fields = [f for f in sort_fields if f not in sortable_fields]
+        if invalid_fields:
+            raise SolrError(f"Fields not sortable in collection {collection}: {', '.join(invalid_fields)}")
+
+    def _extract_sort_fields(self, sort_spec: str) -> List[str]:
+        """Extract field names from a sort specification.
+        
+        Args:
+            sort_spec: Sort specification string (e.g. "field1 asc, field2 desc")
+            
+        Returns:
+            List of field names used in sorting
+        """
+        fields = []
+        for part in sort_spec.split(","):
+            field = part.strip().split()[0]  # Get field name before direction
+            fields.append(field)
+        return fields
+
+    def _preprocess_solr_query(self, query: str) -> str:
+        """Preprocess a Solr query to make it SQL-compatible.
+        
+        Args:
+            query: SQL query with potential Solr syntax
+            
+        Returns:
+            SQL-compatible query string
+        """
+        # Replace Solr field:value syntax with field = 'value'
+        def replace_field_value(match):
+            field = match.group(1)
+            value = match.group(2)
+            return f"{field} = '{value}'"
+            
+        # First pass: handle basic field:value syntax
+        query = re.sub(r'(\w+):(\w+)', replace_field_value, query)
+        
+        return query
+
+    async def execute_select_query(self, query: str) -> Dict[str, Any]:
+        """Execute a SQL SELECT query against Solr using the SQL interface.
+        
+        Args:
+            query: SQL query to execute
+            
+        Returns:
+            Search results as a dictionary with result-set containing docs and metadata
+            
+        Raises:
+            SolrError: If there is a syntax error or other Solr-related error
+        """
         try:
-            # Try getting schema using Solr admin API
-            try:
-                schema_url = f"admin/collections/{collection}/schema/fields"
-                logger.debug(f"Getting searchable fields from schema URL: {schema_url}")
-                response = client._send_request('get', schema_url)
-            except Exception as e:
-                logger.warning(f"Error getting schema fields: {e}")
-                logger.info("Fallback: trying direct URL with query that returns field info")
-                
-                # Fallback - use direct select query to get the fields
-                import requests
-                direct_url = f"{client.url}/select?q=*:*&rows=0&wt=json"
-                logger.debug(f"Trying direct URL: {direct_url}")
-                response = requests.get(direct_url, timeout=self.config.connection_timeout).json()
+            # Parse and validate SQL query
+            ast = parse_one(self._preprocess_solr_query(query))
+            if not isinstance(ast, Select):
+                raise SolrError("Query must be a SELECT statement")
             
-            # Extract text and string fields
-            fields = []
-            for field in response.get('fields', []):
-                field_type = field.get('type', '')
-                # Check if field type maps to text or string in our simplified type system
-                if field_type in FIELD_TYPE_MAPPING:
-                    mapped_type = FIELD_TYPE_MAPPING[field_type]
-                    if mapped_type in ['text', 'string']:
-                        fields.append(field['name'])
+            # Extract collection from FROM clause
+            from_clause = ast.args.get("from")
+            if not from_clause or not isinstance(from_clause, From):
+                raise SolrError("Query must have a FROM clause")
             
-            if not fields:
-                # If no fields found, return catch-all field
-                return ['_text_']
+            collection = from_clause.this.name
             
-            return fields
+            # Extract selected fields
+            selected_fields = []
+            for expr in ast.expressions:
+                if isinstance(expr, Column):
+                    selected_fields.append(expr.alias_or_name)
+                elif isinstance(expr, Identifier):
+                    selected_fields.append(expr.name)
+            
+            # Validate fields if any are specified
+            if selected_fields and not all(field == "*" for field in selected_fields):
+                self._validate_fields(collection, selected_fields)
+            
+            # Extract and validate sort fields if ORDER BY is present
+            sort_clause = ast.args.get("order")
+            if sort_clause:
+                sort_fields = []
+                for expr in sort_clause:
+                    if isinstance(expr, exp.Ordered):
+                        if isinstance(expr.this, exp.Column):
+                            sort_fields.append(expr.this.name)
+                        elif isinstance(expr.this, exp.Identifier):
+                            sort_fields.append(expr.this.name)
+                self._validate_sort_fields(collection, sort_fields)
+            
+            # Build SQL endpoint URL
+            sql_url = f"{self.config.solr_base_url}/{collection}/sql"
+            
+            # Execute SQL query
+            response = requests.post(sql_url, json={
+                "stmt": query
+            })
+            
+            if response.status_code != 200:
+                raise SolrError(f"SQL query failed: {response.text}")
+            
+            # Format response to match expected structure
+            raw_response = response.json()
+            
+            # Transform response to expected format
+            result = {
+                "rows": raw_response.get("docs", []),
+                "numFound": raw_response.get("numFound", 0),
+                "offset": raw_response.get("start", 0)
+            }
+            
+            return result
+            
         except Exception as e:
-            logger.error(f"Error getting searchable fields: {e}")
-            # Return only the guaranteed catch-all field
-            return ['_text_']
+            if isinstance(e, SolrError):
+                raise
+            raise SolrError(f"Error executing SQL query: {str(e)}")
+
+    async def execute_semantic_select_query(self, query: str, limit: int = 10) -> Dict[str, Any]:
+        """Execute a semantic search by converting text query to vector embedding.
+        
+        Args:
+            query: Text query to convert to vector embedding
+            limit: Maximum number of results to return
+            
+        Returns:
+            Search results as a dictionary with rows, numFound, and offset
+            
+        Raises:
+            SolrError: If Ollama client is not initialized or other Solr-related error
+        """
+        if not self.ollama:
+            raise SolrError("Ollama client not initialized. Vector operations unavailable.")
+            
+        try:
+            # Get vector embedding for query
+            embedding = await self.ollama.get_embedding(query)
+            
+            # Execute vector search with the embedding
+            return await self.execute_vector_select_query(embedding)
+            
+        except Exception as e:
+            logger.error(f"Error in semantic search: {e}")
+            raise SolrError(f"Semantic search failed: {e}")
+
+    async def execute_vector_select_query(self, vector: List[float]) -> Dict[str, Any]:
+        """Execute a vector similarity search using a raw vector.
+        
+        Args:
+            vector: Vector to search for similar documents
+            
+        Returns:
+            Search results as a dictionary with rows, numFound, and offset
+            
+        Raises:
+            SolrError: If there is a Solr-related error
+        """
+        try:
+            # Format vector for KNN query
+            vector_str = "[" + ",".join(map(str, vector)) + "]"
+            knn_query = f"{{!knn f=embedding topK=10}}{vector_str}"
+            
+            # Execute search
+            client = self._get_or_create_client(self.config.default_collection)
+            results = client.search(knn_query)
+            
+            return {
+                "rows": list(results.docs),
+                "numFound": results.hits,
+                "offset": 0
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in vector search: {e}")
+            raise SolrError(f"Vector search failed: {e}")
+
+
+        """DEPRECATED: Use execute_semantic_select instead.
+        
+        This method is kept for backward compatibility and will be removed in a future version.
+        """
+        import warnings
+        warnings.warn(
+            "vector_search is deprecated. Use execute_semantic_select instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        return await self.execute_semantic_select(query, limit)

@@ -61,10 +61,9 @@
   <field name="published_date" type="date" indexed="true" stored="true"/>
   <field name="author" type="string" indexed="true" stored="true" multiValued="true"/>
   <field name="tags" type="string" indexed="true" stored="true" multiValued="true"/>
-  <field name="embedding" type="knn_vector" indexed="true" stored="false"/>
   
   <!-- Vector embedding field -->
-  <field name="content_vector" type="knn_vector" indexed="true" stored="true"/>
+  <field name="embedding" type="knn_vector" indexed="true" stored="false"/>
   
   <!-- Dynamic field patterns -->
   <dynamicField name="*_i" type="int" indexed="true" stored="true"/>
