@@ -22,6 +22,7 @@ python-frontmatter = "^1.1.0"
 loguru = "^0.7.3"
 kazoo = "^2.10.0"
 sqlglot = "^26.11.1"
+pytest-mock = "^3.14.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
@@ -38,3 +39,10 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 solr-mcp = "solr_mcp.server:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: marks tests that require external services (deselect with '-m \"not integration\"')"
+]

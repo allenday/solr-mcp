@@ -1,236 +1,139 @@
-"""Tests for the SolrClient."""
+"""Unit tests for SolrClient."""
 
-import json
-import unittest
-from unittest.mock import MagicMock, patch
-
-import numpy as np
 import pytest
-from kazoo.client import KazooClient
-from pysolr import Solr, Results
-
-from solr_mcp.solr.client import SolrClient, SolrConfig
-
+from unittest.mock import Mock, MagicMock, patch
+from solr_mcp.solr.client import SolrClient
+from solr_mcp.solr.interfaces import CollectionProvider, VectorSearchProvider
+from .conftest import (
+    MOCK_SELECT_RESPONSE,
+    MOCK_VECTOR_RESPONSE,
+    MOCK_SEMANTIC_RESPONSE,
+    MockCollectionProvider,
+    MockVectorProvider
+)
 
 class TestSolrClient:
-    """Test suite for SolrClient."""
-    
-    @pytest.fixture
-    def mock_kazoo(self):
-        """Mock KazooClient."""
-        with patch("solr_mcp.solr.client.KazooClient") as mock:
-            kazoo_instance = MagicMock(spec=KazooClient)
-            mock.return_value = kazoo_instance
-            kazoo_instance.exists.return_value = True
-            kazoo_instance.get_children.return_value = ["collection1", "collection2"]
-            yield kazoo_instance
-    
-    @pytest.fixture
-    def mock_solr(self):
-        """Mock pysolr.Solr."""
-        with patch("solr_mcp.solr.client.pysolr.Solr") as mock:
-            solr_instance = MagicMock(spec=Solr)
-            mock.return_value = solr_instance
-            
-            # Mock search results
-            results = MagicMock(spec=Results)
-            results.hits = 10
-            results.docs = [
-                {"id": "1", "title": "Document 1", "content": "Content 1"},
-                {"id": "2", "title": "Document 2", "content": "Content 2"},
-            ]
-            results.facets = {"facet_fields": {"category": ["books", 5, "articles", 3]}}
-            
-            solr_instance.search.return_value = results
-            
-            # Mock _send_request for suggestions
-            suggestion_response = {
-                "suggest": {
-                    "suggest": {
-                        "doc": {
-                            "numFound": 2,
-                            "suggestions": [
-                                {"term": "document", "weight": 10},
-                                {"term": "documentation", "weight": 5},
-                            ]
-                        }
-                    }
-                }
-            }
-            solr_instance._send_request.return_value = suggestion_response
-            
-            yield solr_instance
-    
-    @pytest.fixture
-    def client(self, mock_kazoo, mock_solr):
-        """Create a SolrClient instance with mocked dependencies."""
-        with patch("solr_mcp.solr.client.SolrClient._load_config") as mock_load:
-            config = SolrConfig(
-                zookeeper_hosts=["localhost:2181"],
-                solr_base_url="http://localhost:8983/solr",
-                default_collection="collection1"
-            )
-            mock_load.return_value = config
-            client = SolrClient()
-            yield client
-    
-    async def test_search(self, client, mock_solr):
-        """Test search functionality."""
-        # Arrange
-        query = "test query"
-        fields = ["id", "title"]
-        filters = ["category:books"]
-        
-        # Act
-        result = await client.search(
-            query=query,
-            fields=fields,
-            filters=filters,
-            rows=10,
-            start=0
+    """Test cases for SolrClient."""
+
+    def test_init_with_defaults(self, mock_config, mock_solr_instance, mock_field_manager, mock_ollama):
+        """Test initialization with default dependencies."""
+        client = SolrClient(
+            config=mock_config,
+            field_manager=mock_field_manager,
+            vector_provider=mock_ollama
         )
+        assert client.config == mock_config
+        assert isinstance(client.collection_provider, CollectionProvider)
+        assert client.field_manager == mock_field_manager
+        assert client.vector_provider == mock_ollama
+
+    def test_init_with_custom_providers(self, mock_config, mock_solr_instance, mock_field_manager):
+        """Test initialization with custom providers."""
+        mock_collection_provider = MockCollectionProvider()
+        mock_vector_provider = MockVectorProvider()
         
-        # Assert
-        mock_solr.search.assert_called_once()
-        assert isinstance(result, str)
-        
-        # Parse result and check content
-        result_data = json.loads(result)
-        assert result_data["numFound"] == 10
-        assert len(result_data["docs"]) == 2
-        assert "facets" in result_data
-    
-    async def test_get_suggestions(self, client, mock_solr):
-        """Test suggestions functionality."""
-        # Arrange
-        query = "doc"
-        
-        # Act
-        result = await client.get_suggestions(query=query, count=5)
-        
-        # Assert
-        mock_solr._send_request.assert_called_once()
-        assert isinstance(result, str)
-        
-        # Parse result and check content
-        result_data = json.loads(result)
-        assert "suggest" in result_data
-    
-    async def test_get_facets(self, client, mock_solr):
-        """Test facets functionality."""
-        # Arrange
-        query = "test query"
-        facet_fields = ["category", "author"]
-        
-        # Act
-        result = await client.get_facets(
-            query=query,
-            facet_fields=facet_fields,
-            facet_limit=10
+        client = SolrClient(
+            config=mock_config,
+            collection_provider=mock_collection_provider,
+            solr_client=mock_solr_instance,
+            field_manager=mock_field_manager,
+            vector_provider=mock_vector_provider
         )
-        
-        # Assert
-        mock_solr.search.assert_called_once()
-        assert isinstance(result, str)
-        
-        # Parse result and check content
-        result_data = json.loads(result)
-        assert "facets" in result_data
-    
-    def test_list_collections(self, client, mock_kazoo):
+        assert client.config == mock_config
+        assert client.collection_provider == mock_collection_provider
+        assert client.field_manager == mock_field_manager
+        assert client.vector_provider == mock_vector_provider
+
+    def test_list_collections(self, mock_config, mock_pysolr):
         """Test listing collections."""
-        # Act
+        mock_collection_provider = MockCollectionProvider()
+        client = SolrClient(
+            config=mock_config,
+            collection_provider=mock_collection_provider
+        )
         collections = client.list_collections()
-        
-        # Assert
-        mock_kazoo.get_children.assert_called_once_with("/collections")
-        assert len(collections) == 2
-        assert "collection1" in collections
-        assert "collection2" in collections
-    
-    async def test_vector_search(self, client, mock_solr):
-        """Test vector search functionality."""
-        # Arrange
-        vector = [0.1, 0.2, 0.3, 0.4, 0.5]
-        vector_field = "embedding"
-        
-        # Act
-        result = await client.vector_search(
-            vector=vector,
-            vector_field=vector_field,
-            k=5
+        assert collections == ["collection1", "collection2"]
+
+    @pytest.mark.asyncio
+    async def test_execute_select_query_success(self, mock_config, mock_pysolr, mock_solr_requests, mock_field_manager):
+        """Test successful SQL query execution."""
+        # Mock the response from requests.post
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = MOCK_SELECT_RESPONSE
+        mock_solr_requests.post.return_value = mock_response
+
+        client = SolrClient(
+            config=mock_config,
+            field_manager=mock_field_manager
         )
+        result = await client.execute_select_query("SELECT * FROM collection1")
         
-        # Assert
-        mock_solr.search.assert_called_once()
-        assert isinstance(result, str)
-        
-        # Verify the KNN query format
-        call_args = mock_solr.search.call_args
-        assert call_args is not None
-        query = call_args[0][0]
-        assert "{!knn" in query
-        assert "topK=5" in query
-        
-        # Verify results format
-        result_data = json.loads(result)
-        assert "numFound" in result_data
-        assert "docs" in result_data
-    
-    async def test_index_document_with_vector(self, client, mock_solr):
-        """Test indexing document with vector."""
-        # Arrange
-        document = {"id": "doc1", "title": "Test Document"}
-        vector = [0.1, 0.2, 0.3, 0.4, 0.5]
-        
-        # Act
-        result = await client.index_document_with_vector(
-            document=document,
-            vector=vector,
-            commit=True
+        assert "result-set" in result
+        assert "docs" in result["result-set"]
+        assert result["result-set"]["docs"][0]["id"] == "1"
+
+        # Verify the request was made correctly
+        mock_solr_requests.post.assert_called_once_with(
+            f"{mock_config.solr_base_url}/collection1/sql",
+            json={"stmt": "SELECT * FROM collection1"}
         )
-        
-        # Assert
-        mock_solr.add.assert_called_once()
-        assert result is True
-        
-        # Verify document format
-        call_args = mock_solr.add.call_args
-        assert call_args is not None
-        docs = call_args[0][0]
-        assert len(docs) == 1
-        assert docs[0]["id"] == "doc1"
-        assert docs[0]["embedding"] == vector
-    
-    async def test_batch_index_with_vectors(self, client, mock_solr):
-        """Test batch indexing documents with vectors."""
-        # Arrange
-        documents = [
-            {"id": "doc1", "title": "Document 1"},
-            {"id": "doc2", "title": "Document 2"}
-        ]
-        vectors = [
-            [0.1, 0.2, 0.3],
-            [0.4, 0.5, 0.6]
-        ]
-        
-        # Act
-        result = await client.batch_index_with_vectors(
-            documents=documents,
-            vectors=vectors,
-            commit=True
+
+    @pytest.mark.asyncio
+    async def test_execute_vector_select_query_success(self, mock_config, mock_pysolr, mock_solr_requests, mock_field_manager):
+        """Test successful vector query execution."""
+        # Mock the response from requests.post
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = MOCK_VECTOR_RESPONSE
+        mock_solr_requests.post.return_value = mock_response
+
+        mock_vector_provider = MockVectorProvider()
+        client = SolrClient(
+            config=mock_config,
+            vector_provider=mock_vector_provider,
+            field_manager=mock_field_manager
         )
-        
-        # Assert
-        mock_solr.add.assert_called_once()
-        assert result is True
-        
-        # Verify documents format
-        call_args = mock_solr.add.call_args
-        assert call_args is not None
-        docs = call_args[0][0]
-        assert len(docs) == 2
-        assert docs[0]["id"] == "doc1"
-        assert docs[0]["embedding"] == vectors[0]
-        assert docs[1]["id"] == "doc2"
-        assert docs[1]["embedding"] == vectors[1]
+
+        result = await client.execute_vector_select_query(
+            "SELECT * FROM collection1",
+            [0.1, 0.2, 0.3]
+        )
+
+        assert "result-set" in result
+        assert "docs" in result["result-set"]
+        assert result["result-set"]["docs"][0]["id"] == "1"
+        assert result["result-set"]["docs"][0]["score"] == 0.95
+
+        # Verify the vector search was executed
+        mock_vector_provider._execute_vector_search.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_semantic_select_query_success(self, mock_config, mock_pysolr, mock_solr_requests, mock_field_manager):
+        """Test successful semantic query execution."""
+        # Mock the response from requests.post
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = MOCK_SEMANTIC_RESPONSE
+        mock_solr_requests.post.return_value = mock_response
+
+        mock_vector_provider = MockVectorProvider()
+        client = SolrClient(
+            config=mock_config,
+            vector_provider=mock_vector_provider,
+            field_manager=mock_field_manager
+        )
+
+        result = await client.execute_semantic_select_query(
+            "SELECT * FROM collection1",
+            "sample search text"
+        )
+
+        assert "result-set" in result
+        assert "docs" in result["result-set"]
+        assert result["result-set"]["docs"][0]["id"] == "1"
+        assert result["result-set"]["docs"][0]["score"] == 0.85
+
+        # Verify the embedding was generated and vector search was executed
+        mock_vector_provider._get_embedding.assert_called_once_with("sample search text")
+        mock_vector_provider._execute_vector_search.assert_called_once()
