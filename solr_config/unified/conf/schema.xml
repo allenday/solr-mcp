@@ -50,10 +50,15 @@
   </fieldType>
   
   <!-- Fields for document -->
+  <!-- Unique identifier for each document -->
   <field name="id" type="string" indexed="true" stored="true" required="true" multiValued="false"/>
+  
+  <!-- Text fields - for full text search, use _text_ field which includes content from all these fields -->
   <field name="title" type="text_general" indexed="true" stored="true"/>
   <field name="content" type="text_general" indexed="true" stored="true"/>
   <field name="text" type="text_general" indexed="true" stored="true"/>
+  
+  <!-- Metadata fields - good for faceting and filtering -->
   <field name="section" type="string" indexed="true" stored="true"/>
   <field name="section_number" type="int" indexed="true" stored="true"/>
   <field name="source" type="string" indexed="true" stored="true"/>
@@ -62,7 +67,7 @@
   <field name="author" type="string" indexed="true" stored="true" multiValued="true"/>
   <field name="tags" type="string" indexed="true" stored="true" multiValued="true"/>
   
-  <!-- Vector embedding field -->
+  <!-- Vector embedding field for similarity search -->
   <field name="embedding" type="knn_vector" indexed="true" stored="false"/>
   
   <!-- Dynamic field patterns -->
@@ -81,10 +86,13 @@
   <uniqueKey>id</uniqueKey>
   
   <!-- Special fields -->
+  <!-- _text_ is the main field for full text search - it combines content from all text fields -->
+  <!-- Use this field for general text search queries like: WHERE _text_:'your search terms' -->
   <field name="_text_" type="text_general" indexed="true" stored="false" multiValued="true"/>
   <field name="_version_" type="long" indexed="true" stored="true"/>
   
-  <!-- Expanded field for full-text search -->
+  <!-- Copy all text fields into _text_ for unified full-text search -->
+  <!-- This is why you should use _text_ for searching instead of individual fields -->
   <copyField source="title" dest="_text_"/>
   <copyField source="content" dest="_text_"/>
   <copyField source="text" dest="_text_"/>

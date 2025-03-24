@@ -235,7 +235,7 @@ class QueryBuilder:
             
             # Add document ID filter
             if doc_ids:
-                id_filter = f"id:({' OR '.join(doc_ids)})"
+                id_filter = f"_docid_:({' OR '.join(doc_ids)})"
                 if ast.args.get('where'):
                     ast.args['where'] = exp.Binary(this=ast.args['where'], expression=exp.Identifier(this=id_filter), op="AND")
                 else:

@@ -6,15 +6,15 @@ from pydantic import BaseModel, Field
 class VectorSearchResult(BaseModel):
     """Individual vector search result."""
     
-    id: str = Field(description="Document ID")
+    docid: str = Field(description="Internal Solr document ID (_docid_)")
     score: float = Field(description="Search score")
     distance: Optional[float] = Field(None, description="Vector distance if available")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
     def __getitem__(self, key):
         """Make result subscriptable."""
-        if key == "id":
-            return self.id
+        if key == "docid":
+            return self.docid
         elif key == "score":
             return self.score
         elif key == "distance":
@@ -54,16 +54,22 @@ class VectorSearchResults(BaseModel):
         # Extract main response section
         resp = response.get("response", {})
         docs = resp.get("docs", [])
-        max_score = resp.get("maxScore", 0.0)
         
         # Create results list
         results = []
         for doc in docs:
+            # Handle both string and numeric _docid_
+            docid = doc.get("_docid_")
+            if docid is None:
+                # Try alternate field names
+                docid = doc.get("[docid]") or doc.get("docid") or "0"
+            docid = str(docid)  # Ensure string type
+            
             result = VectorSearchResult(
-                id=doc["id"],
+                docid=docid,
                 score=doc.get("score", 0.0),
                 distance=doc.get("_vector_distance_"),
-                metadata={k: v for k, v in doc.items() if k not in ["id", "score", "_vector_distance_"]}
+                metadata={k: v for k, v in doc.items() if k not in ["_docid_", "[docid]", "docid", "score", "_vector_distance_"]}
             )
             results.append(result)
             
@@ -96,7 +102,7 @@ class VectorSearchResults(BaseModel):
         Returns:
             List of document IDs
         """
-        return [result.id for result in self.results]
+        return [result.docid for result in self.results]
         
     def get_scores(self) -> List[float]:
         """Get list of scores from results.

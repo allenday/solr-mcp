@@ -2,14 +2,18 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 import pysolr
 import requests
 from loguru import logger
+import aiohttp
 
 from solr_mcp.solr.config import SolrConfig
-from solr_mcp.solr.exceptions import SolrError, ConnectionError, QueryError
+from solr_mcp.solr.exceptions import (
+    SolrError, ConnectionError, QueryError,
+    DocValuesError, SQLParseError, SQLExecutionError
+)
 from solr_mcp.solr.schema import FieldManager
 from solr_mcp.solr.query import QueryBuilder
 from solr_mcp.solr.utils.formatting import format_search_results, format_sql_response
@@ -56,20 +60,70 @@ class SolrClient:
         self.vector_provider = vector_provider or VectorManager(self.solr)
         self.query_builder = query_builder or QueryBuilder(field_manager=self.field_manager)
 
-    def _get_or_create_client(self, collection: str) -> pysolr.Solr:
-        """Get or create a Solr client for the specified collection."""
+    async def _get_or_create_client(self, collection: str) -> pysolr.Solr:
+        """Get or create a Solr client for the specified collection.
+        
+        Args:
+            collection: Collection name
+            
+        Returns:
+            Configured Solr client for the collection
+        """
+        # In the future we might want to maintain a client pool/cache
+        # For now, just create a new client each time
         return pysolr.Solr(f"{self.base_url}/{collection}")
     
     async def list_collections(self) -> List[str]:
         """List all available collections."""
         try:
-            return await self.collection_provider.list_collections()
-        except ConnectionError:
-            # Re-raise ConnectionError as it's the expected type
+            response = requests.get(f"{self.base_url}/admin/collections?action=LIST")
+            if response.status_code != 200:
+                raise SolrError(f"Failed to list collections: {response.text}")
+            
+            collections = response.json()['collections']
+            return collections
+            
+        except Exception as e:
+            raise SolrError(f"Failed to list collections: {str(e)}")
+
+    async def list_fields(self, collection: str) -> List[Dict[str, Any]]:
+        """List all fields in a collection with their properties."""
+        try:
+            # Verify collection exists
+            collections = await self.list_collections()
+            if collection not in collections:
+                raise SolrError(f"Collection '{collection}' does not exist")
+            
+            # Get schema fields and copyFields
+            schema_response = requests.get(f"{self.base_url}/{collection}/schema")
+            if schema_response.status_code != 200:
+                raise SolrError(f"Failed to get schema for collection '{collection}': {schema_response.text}")
+            
+            schema = schema_response.json()
+            fields = schema['schema']['fields']
+            copy_fields = schema['schema'].get('copyFields', [])
+            
+            # Build map of destination fields to their source fields
+            copies_from = {}
+            for copy_field in copy_fields:
+                dest = copy_field['dest']
+                source = copy_field['source']
+                if dest not in copies_from:
+                    copies_from[dest] = []
+                copies_from[dest].append(source)
+            
+            # Add copyField information to field properties
+            for field in fields:
+                if field['name'] in copies_from:
+                    field['copies_from'] = copies_from[field['name']]
+            
+            return fields
+            
+        except SolrError:
             raise
         except Exception as e:
-            raise ConnectionError(f"Failed to list collections: {str(e)}")
-    
+            raise SolrError(f"Failed to list fields for collection '{collection}': {str(e)}")
+
     def _format_search_results(self, results: pysolr.Results, start: int = 0) -> str:
         """Format Solr search results for LLM consumption."""
         return format_search_results(results, start)
@@ -78,25 +132,57 @@ class SolrClient:
         """Execute a SQL SELECT query against Solr using the SQL interface."""
         try:
             # Parse and validate query
-            ast, collection, _ = self.query_builder.parse_and_validate_select(query)
+            logger.debug(f"Original query: {query}")
+            preprocessed_query = self.query_builder.parser.preprocess_query(query)
+            logger.debug(f"Preprocessed query: {preprocessed_query}")
+            ast, collection, _ = self.query_builder.parse_and_validate_select(preprocessed_query)
+            logger.debug(f"Parsed collection: {collection}")
             
-            # Build SQL endpoint URL
-            sql_url = f"{self.config.solr_base_url}/{collection}/sql"
+            # Build SQL endpoint URL with aggregationMode
+            sql_url = f"{self.base_url}/{collection}/sql?aggregationMode=facet"
+            logger.debug(f"SQL URL: {sql_url}")
             
-            # Execute SQL query
-            response = requests.post(sql_url, json={
-                "stmt": query
-            })
+            # Execute SQL query with URL-encoded form data
+            payload = {'stmt': preprocessed_query.strip()}
+            logger.debug(f"Request payload: {payload}")
+            
+            response = requests.post(
+                sql_url,
+                data=payload,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            
+            logger.debug(f"Response status: {response.status_code}")
+            logger.debug(f"Response text: {response.text}")
             
             if response.status_code != 200:
-                raise QueryError(f"SQL query failed: {response.text}")
-                
-            return format_sql_response(response.json())
+                raise SQLExecutionError(f"SQL query failed with status {response.status_code}: {response.text}")
             
-        except QueryError as e:
-            raise QueryError(f"SQL query failed: {str(e)}")
+            response_json = response.json()
+            
+            # Check for Solr SQL exception in response
+            if 'result-set' in response_json and 'docs' in response_json['result-set']:
+                docs = response_json['result-set']['docs']
+                if docs and 'EXCEPTION' in docs[0]:
+                    exception_msg = docs[0]['EXCEPTION']
+                    response_time = docs[0].get('RESPONSE_TIME')
+                    
+                    # Raise appropriate exception type based on error message
+                    if 'must have DocValues to use this feature' in exception_msg:
+                        raise DocValuesError(exception_msg, response_time)
+                    elif 'parse failed:' in exception_msg:
+                        raise SQLParseError(exception_msg, response_time)
+                    else:
+                        raise SQLExecutionError(exception_msg, response_time)
+            
+            return format_sql_response(response_json)
+            
+        except (DocValuesError, SQLParseError, SQLExecutionError):
+            # Re-raise these specific exceptions
+            raise
         except Exception as e:
-            raise QueryError(f"SQL query failed: {str(e)}")
+            logger.error(f"Unexpected error: {str(e)}")
+            raise SQLExecutionError(f"SQL query failed: {str(e)}")
 
     async def execute_vector_select_query(
         self,
@@ -109,13 +195,29 @@ class SolrClient:
             ast, collection, _ = self.query_builder.parse_and_validate_select(query)
             
             # Get limit and offset from query
-            limit = ast.args.get("limit")
-            offset = ast.args.get("offset", 0)
-            top_k = limit + offset if limit else None
+            limit = 10  # Default limit
+            if ast.args.get('limit'):
+                try:
+                    limit_expr = ast.args['limit']
+                    if hasattr(limit_expr, 'expression'):
+                        # Handle case where expression is a Literal
+                        if hasattr(limit_expr.expression, 'this'):
+                            limit = int(limit_expr.expression.this)
+                        else:
+                            limit = int(limit_expr.expression)
+                    else:
+                        limit = int(limit_expr)
+                except (ValueError, AttributeError):
+                    limit = 10  # Fallback to default
+            
+            offset = ast.args.get('offset', 0)
+            
+            # For KNN search, we need to fetch limit + offset results to account for pagination
+            top_k = limit + offset
             
             # Execute vector search
-            client = self._get_or_create_client(collection)
-            results = self.vector_provider.execute_vector_search(
+            client = await self._get_or_create_client(collection)
+            results = await self.vector_provider.execute_vector_search(
                 client=client,
                 vector=vector,
                 top_k=top_k
@@ -124,7 +226,7 @@ class SolrClient:
             # Convert to VectorSearchResults
             vector_results = VectorSearchResults.from_solr_response(
                 response=results,
-                top_k=top_k or 10  # Use default top_k if not specified
+                top_k=top_k
             )
             
             # Build final query with vector results
@@ -134,15 +236,59 @@ class SolrClient:
             )
             
             # Build SQL endpoint URL
-            sql_url = f"{self.config.solr_base_url}/{collection}/sql"
+            sql_url = f"{self.config.solr_base_url}/{collection}/sql?aggregationMode=facet"
             
-            # Execute SQL query
-            response = requests.post(sql_url, json=query_params)
-            
-            if response.status_code != 200:
-                raise QueryError(f"SQL query failed: {response.text}")
+            # Execute SQL query using aiohttp
+            async with aiohttp.ClientSession() as session:
+                # Convert query_params to SQL statement
+                stmt = query  # Start with original query
+                if 'fq' in query_params:
+                    # Add filter query if present
+                    doc_ids = query_params['fq']
+                    if doc_ids:
+                        stmt = f"{stmt} WHERE id IN ({','.join(doc_ids)})"
+                    else:
+                        # No vector search results, return empty result set
+                        stmt = f"{stmt} WHERE 1=0"  # Always false condition
                 
-            return format_sql_response(response.json())
+                if 'rows' in query_params:
+                    # Add limit if present and not already in query
+                    if 'LIMIT' not in stmt.upper():
+                        stmt = f"{stmt} LIMIT {query_params['rows']}"
+                
+                logger.debug(f"Executing SQL query: {stmt}")
+                async with session.post(
+                    sql_url,
+                    data={'stmt': stmt},
+                    headers={'Content-Type': 'application/x-www-form-urlencoded'}
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise QueryError(f"SQL query failed: {error_text}")
+                    
+                    content_type = response.headers.get('Content-Type', '')
+                    response_text = await response.text()
+                    
+                    try:
+                        if 'application/json' in content_type:
+                            response_json = json.loads(response_text)
+                        else:
+                            # For text/plain responses, try to parse as JSON first
+                            try:
+                                response_json = json.loads(response_text)
+                            except json.JSONDecodeError:
+                                # If not JSON, wrap in a basic result structure
+                                response_json = {
+                                    'result-set': {
+                                        'docs': [],
+                                        'numFound': 0,
+                                        'start': 0
+                                    }
+                                }
+                        
+                        return format_sql_response(response_json)
+                    except Exception as e:
+                        raise QueryError(f"Failed to parse response: {str(e)}, Response: {response_text[:200]}")
             
         except Exception as e:
             if isinstance(e, (QueryError, SolrError)):

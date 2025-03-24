@@ -50,20 +50,27 @@ class VectorManager(VectorSearchProvider):
             raise SolrError(f"Error getting embedding: {str(e)}")
             
     def format_knn_query(self, vector: List[float], top_k: Optional[int] = None) -> str:
-        """Format KNN query for vector similarity search.
+        """Format KNN query for Solr.
         
         Args:
             vector: Query vector
-            top_k: Number of results to return
+            top_k: Number of results to return (optional)
             
         Returns:
             Formatted KNN query string
         """
-        vector_str = "[" + ",".join(str(x) for x in vector) + "]"
-        k = top_k or self.default_top_k
-        return f"{{!knn f={self.embedding_field} topK={k}}}{vector_str}"
+        # Format vector as string
+        vector_str = "[" + ",".join(str(v) for v in vector) + "]"
         
-    def execute_vector_search(
+        # Build KNN query
+        if top_k is not None:
+            knn_template = "{{!knn f={field} topK={k}}}{vector}"
+            return knn_template.format(field=self.embedding_field, k=int(top_k), vector=vector_str)
+        else:
+            knn_template = "{{!knn f={field}}}{vector}"
+            return knn_template.format(field=self.embedding_field, vector=vector_str)
+        
+    async def execute_vector_search(
         self,
         client: pysolr.Solr,
         vector: List[float],
@@ -91,13 +98,21 @@ class VectorManager(VectorSearchProvider):
             # Execute search
             results = client.search(
                 knn_query,
-                fq=filter_query,
-                fl=f"id,score,{self.embedding_field}"
+                **{
+                    'fl': '_docid_,score,_vector_distance_',  # Request _docid_ instead of id
+                    'fq': filter_query if filter_query else None
+                }
             )
             
+            # Convert pysolr Results to dict format
             if not isinstance(results, dict):
-                results = results.raw_response
-                
+                return {
+                    'responseHeader': {'QTime': getattr(results, 'qtime', None)},
+                    'response': {
+                        'numFound': results.hits,
+                        'docs': list(results)
+                    }
+                }
             return results
             
         except Exception as e:

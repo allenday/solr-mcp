@@ -66,15 +66,26 @@ def format_search_results(
         return json.dumps({"error": str(e)})
 
 def format_sql_response(raw_response: Dict[str, Any]) -> Dict[str, Any]:
-    """Format SQL query response to a standardized structure.
-    
-    Args:
-        raw_response: Raw response from Solr SQL endpoint
+    """Format SQL query response to a standardized structure."""
+    try:
+        # Check for error response
+        if "result-set" in raw_response and "docs" in raw_response["result-set"]:
+            docs = raw_response["result-set"]["docs"]
+            if len(docs) == 1 and "EXCEPTION" in docs[0]:
+                raise QueryError(docs[0]["EXCEPTION"])
         
-    Returns:
-        Formatted response dictionary with standardized structure
-    """
-    return raw_response
+        # Return standardized response format
+        return {
+            "result-set": {
+                "docs": raw_response.get("result-set", {}).get("docs", []),
+                "numFound": len(raw_response.get("result-set", {}).get("docs", [])),
+                "start": 0
+            }
+        }
+    except QueryError as e:
+        raise e
+    except Exception as e:
+        raise QueryError(f"Error formatting SQL response: {str(e)}")
 
 def format_error_response(error: Exception) -> str:
     """Format error response as JSON string.

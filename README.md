@@ -9,6 +9,22 @@ A Python package for accessing Apache Solr indexes via Model Context Protocol (M
 - **Vector Embeddings**: Generates embeddings for documents using Ollama with nomic-embed-text
 - **Unified Collections**: Store both document content and vector embeddings in the same collection
 - **Docker Integration**: Easy setup with Docker and docker-compose
+- **Optimized Vector Search**: Efficiently handles combined vector and SQL queries by pushing down SQL filters to the vector search stage, ensuring optimal performance even with large result sets and pagination
+
+## Architecture
+
+### Vector Search Optimization
+
+The system employs an important optimization for combined vector and SQL queries. When executing a query that includes both vector similarity search and SQL filters:
+
+1. SQL filters (WHERE clauses) are pushed down to the vector search stage
+2. This ensures that vector similarity calculations are only performed on documents that will match the final SQL criteria
+3. Significantly improves performance for queries with:
+   - Selective WHERE clauses
+   - Pagination (LIMIT/OFFSET)
+   - Large result sets
+
+This optimization reduces computational overhead and network transfer by minimizing the number of vector similarity calculations needed.
 
 ## Quick Start
 
