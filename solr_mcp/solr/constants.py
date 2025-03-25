@@ -10,7 +10,7 @@ FIELD_TYPE_MAPPING = {
     "float": "numeric",
     "double": "numeric",
     "date": "date",
-    "boolean": "boolean"
+    "boolean": "boolean",
 }
 
 # Synthetic fields that can be used for sorting
@@ -19,13 +19,13 @@ SYNTHETIC_SORT_FIELDS = {
         "type": "numeric",
         "directions": ["asc", "desc"],
         "default_direction": "desc",
-        "searchable": True
+        "searchable": True,
     },
     "_docid_": {
         "type": "numeric",
         "directions": ["asc", "desc"],
         "default_direction": "asc",
         "searchable": False,
-        "warning": "Internal Lucene document ID. Not stable across restarts or reindexing."
-    }
-} 
+        "warning": "Internal Lucene document ID. Not stable across restarts or reindexing.",
+    },
+}

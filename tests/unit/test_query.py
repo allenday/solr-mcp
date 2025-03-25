@@ -4,14 +4,16 @@ import pytest
 from sqlglot import parse_one
 
 from solr_mcp.solr.exceptions import QueryError
-from solr_mcp.solr.query.parser import QueryParser
 from solr_mcp.solr.query.builder import QueryBuilder
+from solr_mcp.solr.query.parser import QueryParser
 from solr_mcp.solr.schema.fields import FieldManager
+
 
 @pytest.fixture
 def query_parser():
     """Create a QueryParser instance."""
     return QueryParser()
+
 
 @pytest.fixture
 def field_manager(mocker):
@@ -22,10 +24,12 @@ def field_manager(mocker):
     manager.validate_sort_field.return_value = True
     return manager
 
+
 @pytest.fixture
 def query_builder(field_manager):
     """Create a QueryBuilder instance."""
     return QueryBuilder(field_manager)
+
 
 class TestQueryParser:
     """Test QueryParser class."""
@@ -91,6 +95,7 @@ class TestQueryParser:
         assert collection == "test_collection"
         assert fields == ["*"]
 
+
 class TestQueryBuilder:
     """Test QueryBuilder class."""
 
@@ -130,7 +135,9 @@ class TestQueryBuilder:
 
     def test_build_solr_query_success(self, query_builder):
         """Test building Solr query."""
-        ast = parse_one("SELECT * FROM test_collection WHERE title = 'test' ORDER BY score DESC")
+        ast = parse_one(
+            "SELECT * FROM test_collection WHERE title = 'test' ORDER BY score DESC"
+        )
         solr_query = query_builder.build_solr_query(ast)
         assert "fq" in solr_query
         assert solr_query["fq"] == 'title:"test"'
@@ -149,14 +156,18 @@ class TestQueryBuilder:
         with pytest.raises(QueryError) as exc_info:
             query_builder.parse_and_validate_select(query)
 
-    def test_parse_and_validate_select_invalid_collection(self, query_builder, field_manager):
+    def test_parse_and_validate_select_invalid_collection(
+        self, query_builder, field_manager
+    ):
         """Test parsing with invalid collection."""
         field_manager.validate_collection_exists.return_value = False
         query = "SELECT * FROM invalid_collection"
         with pytest.raises(QueryError) as exc_info:
             query_builder.parse_and_validate_select(query)
 
-    def test_parse_and_validate_select_invalid_fields(self, query_builder, field_manager):
+    def test_parse_and_validate_select_invalid_fields(
+        self, query_builder, field_manager
+    ):
         """Test parsing with invalid fields."""
         field_manager.validate_field_exists.return_value = False
         query = "SELECT invalid_field FROM test_collection"
@@ -171,7 +182,9 @@ class TestQueryBuilder:
         assert fields == ["id", "title"]
         assert sort_fields == [("id", "ASC"), ("title", "DESC")]
 
-    def test_parse_and_validate_select_invalid_sort_field(self, query_builder, field_manager):
+    def test_parse_and_validate_select_invalid_sort_field(
+        self, query_builder, field_manager
+    ):
         """Test parsing with invalid sort field."""
         field_manager.validate_sort_field.return_value = False
         query = "SELECT * FROM test_collection ORDER BY invalid_field"

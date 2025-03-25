@@ -3,15 +3,16 @@
 import json
 import os
 from pathlib import Path
-from typing import Dict, Any
-from unittest.mock import patch, mock_open
+from typing import Any, Dict
+from unittest.mock import mock_open, patch
 
-import pytest
 import pydantic
+import pytest
 from pydantic import ValidationError
 
 from solr_mcp.solr.config import SolrConfig
 from solr_mcp.solr.exceptions import ConfigurationError
+
 
 @pytest.fixture
 def valid_config_dict() -> Dict[str, Any]:
@@ -19,8 +20,9 @@ def valid_config_dict() -> Dict[str, Any]:
     return {
         "solr_base_url": "http://localhost:8983/solr",
         "zookeeper_hosts": ["localhost:2181"],
-        "connection_timeout": 10
+        "connection_timeout": 10,
     }
+
 
 @pytest.fixture
 def temp_config_file(tmp_path: Path, valid_config_dict: Dict[str, Any]) -> Path:
@@ -29,6 +31,7 @@ def temp_config_file(tmp_path: Path, valid_config_dict: Dict[str, Any]) -> Path:
     with open(config_file, "w") as f:
         json.dump(valid_config_dict, f)
     return config_file
+
 
 class TestSolrConfig:
     """Test cases for SolrConfig class."""
@@ -44,7 +47,7 @@ class TestSolrConfig:
         """Test initialization with minimal required configuration."""
         config = SolrConfig(
             solr_base_url="http://localhost:8983/solr",
-            zookeeper_hosts=["localhost:2181"]
+            zookeeper_hosts=["localhost:2181"],
         )
         assert config.solr_base_url == "http://localhost:8983/solr"
         assert config.zookeeper_hosts == ["localhost:2181"]
@@ -63,13 +66,16 @@ class TestSolrConfig:
         with pytest.raises(ConfigurationError, match="solr_base_url is required"):
             SolrConfig(solr_base_url="", zookeeper_hosts=["localhost:2181"])
 
-        with pytest.raises(ConfigurationError, match="Solr base URL must start with http:// or https://"):
+        with pytest.raises(
+            ConfigurationError,
+            match="Solr base URL must start with http:// or https://",
+        ):
             SolrConfig(solr_base_url="invalid_url", zookeeper_hosts=["localhost:2181"])
 
         # Test HTTPS URL
         config = SolrConfig(
             solr_base_url="https://localhost:8983/solr",
-            zookeeper_hosts=["localhost:2181"]
+            zookeeper_hosts=["localhost:2181"],
         )
         assert config.solr_base_url == "https://localhost:8983/solr"
 
@@ -82,33 +88,36 @@ class TestSolrConfig:
         # Test non-string hosts
         with pytest.raises(ConfigurationError, match="Input should be a valid string"):
             SolrConfig(
-                solr_base_url="http://localhost:8983/solr",
-                zookeeper_hosts=[123]
+                solr_base_url="http://localhost:8983/solr", zookeeper_hosts=[123]
             )
 
         # Test multiple valid hosts
         config = SolrConfig(
             solr_base_url="http://localhost:8983/solr",
-            zookeeper_hosts=["host1:2181", "host2:2181"]
+            zookeeper_hosts=["host1:2181", "host2:2181"],
         )
         assert config.zookeeper_hosts == ["host1:2181", "host2:2181"]
 
     def test_validate_numeric_fields(self):
         """Test validation of numeric fields."""
         # Test zero values
-        with pytest.raises(ConfigurationError, match="connection_timeout must be positive"):
+        with pytest.raises(
+            ConfigurationError, match="connection_timeout must be positive"
+        ):
             SolrConfig(
                 solr_base_url="http://localhost:8983/solr",
                 zookeeper_hosts=["localhost:2181"],
-                connection_timeout=0
+                connection_timeout=0,
             )
 
         # Test negative values
-        with pytest.raises(ConfigurationError, match="connection_timeout must be positive"):
+        with pytest.raises(
+            ConfigurationError, match="connection_timeout must be positive"
+        ):
             SolrConfig(
                 solr_base_url="http://localhost:8983/solr",
                 zookeeper_hosts=["localhost:2181"],
-                connection_timeout=-1
+                connection_timeout=-1,
             )
 
     def test_validate_config(self):
@@ -122,11 +131,13 @@ class TestSolrConfig:
             SolrConfig(solr_base_url="http://localhost:8983/solr", zookeeper_hosts=[])
 
         # Test invalid connection_timeout
-        with pytest.raises(ConfigurationError, match="connection_timeout must be positive"):
+        with pytest.raises(
+            ConfigurationError, match="connection_timeout must be positive"
+        ):
             SolrConfig(
                 solr_base_url="http://localhost:8983/solr",
                 zookeeper_hosts=["localhost:2181"],
-                connection_timeout=0
+                connection_timeout=0,
             )
 
     def test_load_from_file(self, temp_config_file):
@@ -147,7 +158,9 @@ class TestSolrConfig:
         with open(invalid_json, "w") as f:
             f.write("invalid json")
 
-        with pytest.raises(ConfigurationError, match="Invalid JSON in configuration file"):
+        with pytest.raises(
+            ConfigurationError, match="Invalid JSON in configuration file"
+        ):
             SolrConfig.load(str(invalid_json))
 
     def test_load_invalid_config(self, tmp_path):
@@ -163,7 +176,9 @@ class TestSolrConfig:
         """Test loading with generic error."""
         with patch("builtins.open", mock_open()) as mock_file:
             mock_file.side_effect = Exception("Generic error")
-            with pytest.raises(ConfigurationError, match="Failed to load config: Generic error"):
+            with pytest.raises(
+                ConfigurationError, match="Failed to load config: Generic error"
+            ):
                 SolrConfig.load("config.json")
 
     def test_to_dict(self, valid_config_dict):
@@ -178,12 +193,12 @@ class TestSolrConfig:
         """Test model_validate method."""
         config = SolrConfig(
             solr_base_url="http://localhost:8983/solr",
-            zookeeper_hosts=["localhost:2181"]
+            zookeeper_hosts=["localhost:2181"],
         )
-        
+
         valid_data = {
             "solr_base_url": "http://localhost:8983/solr",
-            "zookeeper_hosts": ["localhost:2181"]
+            "zookeeper_hosts": ["localhost:2181"],
         }
         result = config.model_validate(valid_data)
         assert isinstance(result, SolrConfig)
@@ -192,13 +207,13 @@ class TestSolrConfig:
         """Test model validation with additional fields."""
         config = SolrConfig(
             solr_base_url="http://localhost:8983/solr",
-            zookeeper_hosts=["localhost:2181"]
+            zookeeper_hosts=["localhost:2181"],
         )
-        
+
         data_with_extra = {
             "solr_base_url": "http://localhost:8983/solr",
             "zookeeper_hosts": ["localhost:2181"],
-            "extra_field": "value"
+            "extra_field": "value",
         }
         result = config.model_validate(data_with_extra)
         assert isinstance(result, SolrConfig)
@@ -208,13 +223,13 @@ class TestSolrConfig:
         """Test model validation with type conversion."""
         config = SolrConfig(
             solr_base_url="http://localhost:8983/solr",
-            zookeeper_hosts=["localhost:2181"]
+            zookeeper_hosts=["localhost:2181"],
         )
-        
+
         data = {
             "solr_base_url": "http://localhost:8983/solr",
             "zookeeper_hosts": ["localhost:2181"],
-            "connection_timeout": "20"  # String that should be converted to int
+            "connection_timeout": "20",  # String that should be converted to int
         }
         result = config.model_validate(data)
         assert isinstance(result.connection_timeout, int)

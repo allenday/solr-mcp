@@ -1,11 +1,13 @@
 """Unit tests for ZooKeeperCollectionProvider."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from kazoo.exceptions import NoNodeError, ConnectionLoss
+from kazoo.exceptions import ConnectionLoss, NoNodeError
 
 from solr_mcp.solr.exceptions import ConnectionError
 from solr_mcp.solr.zookeeper import ZooKeeperCollectionProvider
+
 
 class TestZooKeeperCollectionProvider:
     """Test ZooKeeperCollectionProvider."""
@@ -16,10 +18,10 @@ class TestZooKeeperCollectionProvider:
             mock_client = MagicMock()
             mock_client.exists.return_value = True
             mock_factory.return_value = mock_client
-            
+
             hosts = ["host1:2181", "host2:2181"]
             provider = ZooKeeperCollectionProvider(hosts)
-            
+
             assert provider.hosts == hosts
             assert provider.zk is not None
             mock_factory.assert_called_once_with(hosts="host1:2181,host2:2181")
@@ -32,7 +34,7 @@ class TestZooKeeperCollectionProvider:
             mock_client = MagicMock()
             mock_client.exists.return_value = True
             mock_factory.return_value = mock_client
-            
+
             # Create provider and test initial connection
             provider = ZooKeeperCollectionProvider(["host1:2181"])
             mock_factory.assert_called_once_with(hosts="host1:2181")
@@ -42,12 +44,12 @@ class TestZooKeeperCollectionProvider:
             # Reset mocks and test reconnection after cleanup
             mock_factory.reset_mock()
             mock_client.reset_mock()
-            
+
             # Create a new mock for reconnection
             mock_reconnect_client = MagicMock()
-            mock_reconnect_client.exists.return_value = True 
+            mock_reconnect_client.exists.return_value = True
             mock_factory.return_value = mock_reconnect_client
-            
+
             provider.cleanup()
             provider.connect()
 
@@ -61,8 +63,10 @@ class TestZooKeeperCollectionProvider:
             mock_client = MagicMock()
             mock_client.exists.return_value = False
             mock_factory.return_value = mock_client
-            
-            with pytest.raises(ConnectionError, match="ZooKeeper /collections path does not exist"):
+
+            with pytest.raises(
+                ConnectionError, match="ZooKeeper /collections path does not exist"
+            ):
                 provider = ZooKeeperCollectionProvider(["host1:2181"])
 
     def test_connect_error(self):
@@ -71,7 +75,7 @@ class TestZooKeeperCollectionProvider:
             mock_client = MagicMock()
             mock_client.start.side_effect = ConnectionLoss("ZooKeeper connection error")
             mock_factory.return_value = mock_client
-            
+
             with pytest.raises(ConnectionError, match="Failed to connect to ZooKeeper"):
                 provider = ZooKeeperCollectionProvider(["host1:2181"])
 
@@ -83,10 +87,10 @@ class TestZooKeeperCollectionProvider:
             mock_client.exists.return_value = True
             mock_client.get_children.return_value = ["collection1", "collection2"]
             mock_factory.return_value = mock_client
-            
+
             provider = ZooKeeperCollectionProvider(["localhost:2181"])
             collections = await provider.list_collections()
-            
+
             assert collections == ["collection1", "collection2"]
             mock_client.get_children.assert_called_once_with("/collections")
 
@@ -98,10 +102,10 @@ class TestZooKeeperCollectionProvider:
             mock_client.exists.return_value = True
             mock_client.get_children.return_value = []
             mock_factory.return_value = mock_client
-            
+
             provider = ZooKeeperCollectionProvider(["localhost:2181"])
             collections = await provider.list_collections()
-            
+
             assert collections == []
             mock_client.get_children.assert_called_once_with("/collections")
 
@@ -112,10 +116,10 @@ class TestZooKeeperCollectionProvider:
             mock_client = MagicMock()
             mock_client.exists.return_value = True
             mock_factory.return_value = mock_client
-            
+
             provider = ZooKeeperCollectionProvider(["localhost:2181"])
             provider.cleanup()  # Force disconnect
-            
+
             with pytest.raises(ConnectionError, match="Not connected to ZooKeeper"):
                 await provider.list_collections()
 
@@ -127,12 +131,12 @@ class TestZooKeeperCollectionProvider:
             mock_client.exists.return_value = True
             mock_client.get_children.side_effect = ConnectionLoss("ZooKeeper error")
             mock_factory.return_value = mock_client
-            
+
             provider = ZooKeeperCollectionProvider(["localhost:2181"])
-            
+
             with pytest.raises(ConnectionError, match="Lost connection to ZooKeeper"):
                 await provider.list_collections()
-                
+
             mock_client.get_children.assert_called_once_with("/collections")
 
     def test_cleanup(self):
@@ -141,10 +145,10 @@ class TestZooKeeperCollectionProvider:
             mock_client = MagicMock()
             mock_client.exists.return_value = True
             mock_factory.return_value = mock_client
-            
+
             provider = ZooKeeperCollectionProvider(["localhost:2181"])
             provider.cleanup()
-            
+
             mock_client.stop.assert_called_once()
             mock_client.close.assert_called_once()
             assert provider.zk is None
@@ -156,8 +160,8 @@ class TestZooKeeperCollectionProvider:
             mock_client.exists.return_value = True
             mock_client.stop.side_effect = Exception("Cleanup error")
             mock_factory.return_value = mock_client
-            
+
             provider = ZooKeeperCollectionProvider(["localhost:2181"])
             provider.cleanup()  # Should not raise exception
-            
-            assert provider.zk is None 
+
+            assert provider.zk is None

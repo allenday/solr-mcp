@@ -1,29 +1,42 @@
-import inspect
-from typing import Any, Callable, Dict, List, Literal, TypedDict, TypeVar, Union, get_args, get_origin
 import functools
+import inspect
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    TypedDict,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
 
 def tool() -> Callable:
     """Decorator to mark a function as an MCP tool.
-    
+
     This decorator adds metadata to the function to identify it as an MCP tool.
     The tool name is derived from the function name, with 'execute_' prefix removed
     and converted to the format 'solr_<n>'.
-    
+
     Returns:
         Decorated function
     """
+
     def decorator(func: Callable) -> Callable:
         """Decorate a function as an MCP tool.
-        
+
         Args:
             func: Function to decorate
-            
+
         Returns:
             Decorated function
         """
+
         @functools.wraps(func)
         async def wrapper(*args, **kwargs) -> Any:
             """Wrap function call."""
@@ -32,10 +45,10 @@ def tool() -> Callable:
             except Exception as e:
                 # Re-raise the exception to be handled by the caller
                 raise
-            
+
         # Set tool metadata
         wrapper._is_tool = True
-        
+
         # Convert execute_list_collections -> solr_list_collections
         # Convert execute_select_query -> solr_select
         # Convert execute_vector_select_query -> solr_vector_select
@@ -46,11 +59,11 @@ def tool() -> Callable:
             if name.endswith("_query"):
                 name = name[:-6]  # Remove '_query'
             name = f"solr_{name}"
-            
+
         wrapper._tool_name = name
-        
+
         return wrapper
-        
+
     return decorator
 
 
@@ -73,7 +86,9 @@ def get_schema(func: Callable) -> ToolSchema:
 
     for line in doc.split("\n"):
         line = line.strip()
-        if line.lower().startswith(("args:", "returns:", "return:", "examples:", "example:")):
+        if line.lower().startswith(
+            ("args:", "returns:", "return:", "examples:", "example:")
+        ):
             break
         description_lines.append(line)
 
@@ -84,13 +99,20 @@ def get_schema(func: Callable) -> ToolSchema:
     params = sig.parameters
 
     if not params:
-        raise ValueError(f"Tool function {func.__name__} must have at least one parameter")
+        raise ValueError(
+            f"Tool function {func.__name__} must have at least one parameter"
+        )
 
     properties = {}
     required = []
 
     # 기본 타입 매핑
-    type_map = {str: {"type": "string"}, int: {"type": "integer"}, float: {"type": "number"}, bool: {"type": "boolean"}}
+    type_map = {
+        str: {"type": "string"},
+        int: {"type": "integer"},
+        float: {"type": "number"},
+        bool: {"type": "boolean"},
+    }
 
     for param_name, param in params.items():
         param_type = param.annotation
@@ -140,7 +162,11 @@ def get_schema(func: Callable) -> ToolSchema:
             if line.lower().startswith("args:"):
                 in_args_section = True
                 continue
-            if in_args_section and not capturing_description and line.startswith(f"{param_name}:"):
+            if (
+                in_args_section
+                and not capturing_description
+                and line.startswith(f"{param_name}:")
+            ):
                 capturing_description = True
                 first_line = line[len(param_name) + 1 :].strip()
                 if first_line:
@@ -149,15 +175,25 @@ def get_schema(func: Callable) -> ToolSchema:
             if capturing_description:
                 if (
                     not line
-                    or line.lower().startswith(("returns:", "return:", "examples:", "example:"))
-                    or (line and not line.startswith((" ", "\t", "-")) and not line.startswith(f"{param_name}:"))
+                    or line.lower().startswith(
+                        ("returns:", "return:", "examples:", "example:")
+                    )
+                    or (
+                        line
+                        and not line.startswith((" ", "\t", "-"))
+                        and not line.startswith(f"{param_name}:")
+                    )
                 ):
                     capturing_description = False
                     break
                 if line:
                     param_description_lines.append(line.strip())
 
-        param_description = "\n".join(param_description_lines) if param_description_lines else f"{param_name} parameter"
+        param_description = (
+            "\n".join(param_description_lines)
+            if param_description_lines
+            else f"{param_name} parameter"
+        )
         param_schema["description"] = param_description
         properties[param_name] = param_schema
 
@@ -168,6 +204,10 @@ def get_schema(func: Callable) -> ToolSchema:
     schema = {
         "name": func.__name__,
         "description": description,
-        "inputSchema": {"type": "object", "properties": properties, "required": required},
+        "inputSchema": {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        },
     }
     return schema

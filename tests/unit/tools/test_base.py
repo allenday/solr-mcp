@@ -6,8 +6,10 @@ import pytest
 
 from solr_mcp.tools.base import tool
 
+
 def test_tool_decorator_default_values():
     """Test tool decorator with default values."""
+
     @tool()
     def sample_tool() -> str:
         """Sample tool docstring."""
@@ -19,12 +21,14 @@ def test_tool_decorator_default_values():
     assert "Sample tool docstring" in sample_tool._tool_description
     assert sample_tool._tool_parameters == {}
 
+
 def test_tool_decorator_custom_values():
     """Test tool decorator with custom values."""
+
     @tool(
         name="custom_name",
         description="Custom description",
-        parameters={"param": "description"}
+        parameters={"param": "description"},
     )
     def sample_tool() -> str:
         return "test"
@@ -34,8 +38,10 @@ def test_tool_decorator_custom_values():
     assert sample_tool._tool_description == "Custom description"
     assert sample_tool._tool_parameters == {"param": "description"}
 
+
 def test_tool_decorator_result_wrapping():
     """Test that tool decorator properly wraps results."""
+
     @tool()
     def string_tool() -> str:
         return "test"
@@ -69,8 +75,10 @@ def test_tool_decorator_result_wrapping():
     assert result[0]["type"] == "text"
     assert result[0]["text"] == "test"
 
+
 def test_tool_decorator_preserves_function_metadata():
     """Test that tool decorator preserves function metadata."""
+
     @tool()
     def sample_tool(param1: str, param2: int = 0) -> str:
         """Sample tool docstring."""
@@ -80,8 +88,9 @@ def test_tool_decorator_preserves_function_metadata():
     assert "Sample tool docstring" in sample_tool.__doc__
     # Check that the function signature is preserved
     import inspect
+
     sig = inspect.signature(sample_tool)
     assert list(sig.parameters.keys()) == ["param1", "param2"]
     assert sig.parameters["param1"].annotation == str
     assert sig.parameters["param2"].annotation == int
-    assert sig.parameters["param2"].default == 0 
+    assert sig.parameters["param2"].default == 0

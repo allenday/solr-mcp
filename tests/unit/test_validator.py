@@ -1,10 +1,12 @@
 """Unit tests for QueryValidator."""
 
-import pytest
 from unittest.mock import Mock
 
-from solr_mcp.solr.query.validator import QueryValidator
+import pytest
+
 from solr_mcp.solr.exceptions import QueryError
+from solr_mcp.solr.query.validator import QueryValidator
+
 
 @pytest.fixture
 def mock_field_manager():
@@ -14,20 +16,22 @@ def mock_field_manager():
         "id": "string",
         "title": "text_general",
         "content": "text_general",
-        "vector": "knn_vector"
+        "vector": "knn_vector",
     }
     mock.get_field_info.return_value = {
         "sortable_fields": {
             "id": {"directions": ["asc", "desc"], "default_direction": "asc"},
-            "title": {"directions": ["asc", "desc"], "default_direction": "asc"}
+            "title": {"directions": ["asc", "desc"], "default_direction": "asc"},
         }
     }
     return mock
+
 
 @pytest.fixture
 def query_validator(mock_field_manager):
     """Create QueryValidator instance with mocked dependencies."""
     return QueryValidator(field_manager=mock_field_manager)
+
 
 class TestQueryValidator:
     """Test cases for QueryValidator."""
@@ -64,7 +68,9 @@ class TestQueryValidator:
 
     def test_validate_sort_fields_invalid(self, query_validator, mock_field_manager):
         """Test validating invalid sort fields."""
-        mock_field_manager.validate_sort_fields.side_effect = Exception("Invalid sort field")
+        mock_field_manager.validate_sort_fields.side_effect = Exception(
+            "Invalid sort field"
+        )
         with pytest.raises(QueryError) as exc_info:
             query_validator.validate_sort_fields("collection1", ["nonexistent_field"])
         assert "Sort field validation error" in str(exc_info.value)
@@ -107,4 +113,4 @@ class TestQueryValidator:
         mock_field_manager.get_field_info.side_effect = Exception("Test error")
         with pytest.raises(QueryError) as exc_info:
             query_validator.validate_sort("id desc", "collection1")
-        assert "Sort field validation error" in str(exc_info.value) 
+        assert "Sort field validation error" in str(exc_info.value)

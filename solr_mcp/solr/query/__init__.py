@@ -2,4 +2,4 @@
 
 from solr_mcp.solr.query.builder import QueryBuilder
 
-__all__ = ["QueryBuilder"] 
+__all__ = ["QueryBuilder"]

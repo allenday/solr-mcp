@@ -1,13 +1,15 @@
 """Tests for tool decorator functionality."""
 
-from typing import List, Literal, Optional, Union, Any
+from typing import Any, List, Literal, Optional, Union
+
 import pytest
 
-from solr_mcp.tools.tool_decorator import tool, get_schema
+from solr_mcp.tools.tool_decorator import get_schema, tool
 
 
 def test_tool_name_conversion():
     """Test tool name conversion from function name."""
+
     @tool()
     async def execute_list_collections():
         """List collections."""
@@ -32,6 +34,7 @@ def test_tool_name_conversion():
 @pytest.mark.asyncio
 async def test_tool_error_handling():
     """Test error handling in tool wrapper."""
+
     @tool()
     async def failing_tool():
         """Tool that raises an exception."""
@@ -43,6 +46,7 @@ async def test_tool_error_handling():
 
 def test_get_schema_validation():
     """Test schema validation for non-tool functions."""
+
     def regular_function():
         pass
 
@@ -52,6 +56,7 @@ def test_get_schema_validation():
 
 def test_get_schema_no_params():
     """Test schema generation for function with no parameters."""
+
     @tool()
     async def no_params_tool():
         """Tool with no parameters."""
@@ -63,6 +68,7 @@ def test_get_schema_no_params():
 
 def test_get_schema_basic_types():
     """Test schema generation for basic parameter types."""
+
     @tool()
     async def basic_types_tool(
         str_param: str,
@@ -70,10 +76,10 @@ def test_get_schema_basic_types():
         float_param: float,
         bool_param: bool,
         optional_str: Optional[str] = None,
-        default_int: int = 42
+        default_int: int = 42,
     ):
         """Test tool with basic types.
-        
+
         Args:
             str_param: String parameter
             int_param: Integer parameter
@@ -105,15 +111,16 @@ def test_get_schema_basic_types():
 
 def test_get_schema_complex_types():
     """Test schema generation for complex parameter types."""
+
     @tool()
     async def complex_types_tool(
         str_list: List[str],
         mode: Literal["a", "b", "c"],
         optional_mode: Optional[Literal["x", "y", "z"]] = None,
-        union_type: Union[str, int] = "default"
+        union_type: Union[str, int] = "default",
     ):
         """Test tool with complex types.
-        
+
         Args:
             str_list: List of strings
             mode: Mode selection
@@ -128,13 +135,13 @@ def test_get_schema_complex_types():
 
     assert properties["str_list"]["type"] == "array"
     assert properties["str_list"]["items"]["type"] == "string"
-    
+
     assert properties["mode"]["type"] == "string"
     assert set(properties["mode"]["enum"]) == {"a", "b", "c"}
-    
+
     assert properties["optional_mode"]["type"] == "string"
     assert set(properties["optional_mode"]["enum"]) == {"x", "y", "z"}
-    
+
     assert properties["union_type"]["type"] == "string"
 
     assert "str_list" in required
@@ -145,6 +152,7 @@ def test_get_schema_complex_types():
 
 def test_get_schema_docstring_parsing():
     """Test docstring parsing in schema generation."""
+
     @tool()
     async def documented_tool(param1: str, param2: int):
         """Tool with detailed documentation.
@@ -165,30 +173,37 @@ def test_get_schema_docstring_parsing():
         pass
 
     schema = get_schema(documented_tool)
-    
+
     assert "Tool with detailed documentation" in schema["description"]
     assert "This is a multiline description" in schema["description"]
     assert "Returns:" not in schema["description"]
     assert "Examples:" not in schema["description"]
-    
+
     properties = schema["inputSchema"]["properties"]
-    assert "First parameter with multiline description" == properties["param1"]["description"]
+    assert (
+        "First parameter with multiline description"
+        == properties["param1"]["description"]
+    )
     assert "Second parameter with multiple lines" == properties["param2"]["description"]
 
 
 def test_get_schema_no_docstring():
     """Test schema generation for function without docstring."""
+
     @tool()
     async def no_doc_tool(param: str):
         pass
 
     schema = get_schema(no_doc_tool)
     assert schema["description"] == ""
-    assert schema["inputSchema"]["properties"]["param"]["description"] == "param parameter"
+    assert (
+        schema["inputSchema"]["properties"]["param"]["description"] == "param parameter"
+    )
 
 
 def test_get_schema_edge_cases():
     """Test schema generation for edge cases in docstring parsing."""
+
     @tool()
     async def edge_case_tool(param1: Any, param2: int, param3: float):
         """Tool with edge case documentation.
@@ -218,12 +233,12 @@ def test_get_schema_edge_cases():
     assert "First parameter" == properties["param1"]["description"]
     assert "Second parameter" == properties["param2"]["description"]
     assert "Third parameter" == properties["param3"]["description"]
-    
+
     # Test that empty lines and sections after Args are properly handled
     assert "Tool with edge case documentation" in schema["description"]
     assert "Duplicate args section" not in schema["description"]
     assert "Returns:" not in schema["description"]
     assert "Examples:" not in schema["description"]
-    
+
     # Test that Any type is handled correctly
-    assert properties["param1"]["type"] == "string" 
+    assert properties["param1"]["type"] == "string"

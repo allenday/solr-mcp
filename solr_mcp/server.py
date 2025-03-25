@@ -1,24 +1,25 @@
 """FastMCP server implementation for Solr."""
 
-import os
-import logging
-import functools
-from typing import List
 import argparse
+import functools
+import logging
+import os
 import sys
+from typing import List
 
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.routing import Mount, Route
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 from mcp.server.sse import SseServerTransport
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.routing import Mount, Route
 
 from solr_mcp.solr.client import SolrClient
 from solr_mcp.solr.config import SolrConfig
 from solr_mcp.tools import TOOLS_DEFINITION
 
 logger = logging.getLogger(__name__)
+
 
 class SolrMCPServer:
     """Model Context Protocol server for SolrCloud integration."""
@@ -27,7 +28,9 @@ class SolrMCPServer:
         self,
         mcp_port: int = int(os.getenv("MCP_PORT", 8081)),
         solr_base_url: str = os.getenv("SOLR_BASE_URL", "http://localhost:8983/solr"),
-        zookeeper_hosts: List[str] = os.getenv("ZOOKEEPER_HOSTS", "localhost:2181").split(","),
+        zookeeper_hosts: List[str] = os.getenv(
+            "ZOOKEEPER_HOSTS", "localhost:2181"
+        ).split(","),
         connection_timeout: int = int(os.getenv("CONNECTION_TIMEOUT", 10)),
         stdio: bool = False,
     ):
@@ -36,7 +39,7 @@ class SolrMCPServer:
         self.config = SolrConfig(
             solr_base_url=solr_base_url,
             zookeeper_hosts=zookeeper_hosts,
-            connection_timeout=connection_timeout
+            connection_timeout=connection_timeout,
         )
         self.stdio = stdio
         self._setup_server()
@@ -50,7 +53,7 @@ class SolrMCPServer:
             sys.exit(1)
 
         logger.info(f"Server starting on port {self.port}")
-        
+
         # Create FastMCP instance
         self.mcp = FastMCP(
             name="Solr MCP Server",
@@ -60,9 +63,9 @@ class SolrMCPServer:
 - Execute semantic search queries
 - Execute vector search queries""",
             debug=True,
-            port=self.port
+            port=self.port,
         )
-        
+
         # Register tools
         self._setup_tools()
 
@@ -80,18 +83,19 @@ class SolrMCPServer:
 
     def _wrap_tool(self, tool):
         """Wrap a tool to handle parameter transformation."""
+
         @functools.wraps(tool)
         async def wrapper(*args, **kwargs):
             # Transform parameters
             kwargs = self._transform_tool_params(tool.__name__, kwargs)
             result = await tool(*args, **kwargs)
             return result
-        
+
         # Copy tool metadata
         wrapper._is_tool = True
         wrapper._tool_name = tool.__name__
         wrapper._tool_description = tool.__doc__ if tool.__doc__ else ""
-        
+
         return wrapper
 
     def _setup_tools(self):
@@ -111,10 +115,11 @@ class SolrMCPServer:
 
     async def close(self):
         """Clean up resources."""
-        if hasattr(self.solr_client, 'close'):
+        if hasattr(self.solr_client, "close"):
             await self.solr_client.close()
-        if hasattr(self.mcp, 'close'):
+        if hasattr(self.mcp, "close"):
             await self.mcp.close()
+
 
 def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlette:
     """Create a Starlette application that can serve the provided MCP server with SSE."""
@@ -140,46 +145,73 @@ def create_starlette_app(mcp_server: Server, *, debug: bool = False) -> Starlett
         ],
     )
 
+
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(description="SolrMCP Server")
-    parser.add_argument("--mcp-port", type=int, help="MCP server port",
-                       default=int(os.getenv("MCP_PORT", 8081)))
-    parser.add_argument("--solr-base-url", help="Solr base URL",
-                       default=os.getenv("SOLR_BASE_URL", "http://localhost:8983/solr"))
-    parser.add_argument("--zookeeper-hosts", help="ZooKeeper hosts (comma-separated)",
-                       default=os.getenv("ZOOKEEPER_HOSTS", "localhost:2181"))
-    parser.add_argument("--connection-timeout", type=int, help="Connection timeout in seconds",
-                       default=int(os.getenv("CONNECTION_TIMEOUT", 10)))
-    parser.add_argument("--transport", choices=['stdio', 'sse'], default='sse',
-                       help='Transport mode (stdio or sse)')
-    parser.add_argument("--host", default="0.0.0.0",
-                       help="Host to bind to (for SSE mode)")
-    parser.add_argument("--port", type=int, default=8080,
-                       help="Port to listen on (for SSE mode)")
-    parser.add_argument("--log-level", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-                       default='INFO', help='Set the logging level')
-    
+    parser.add_argument(
+        "--mcp-port",
+        type=int,
+        help="MCP server port",
+        default=int(os.getenv("MCP_PORT", 8081)),
+    )
+    parser.add_argument(
+        "--solr-base-url",
+        help="Solr base URL",
+        default=os.getenv("SOLR_BASE_URL", "http://localhost:8983/solr"),
+    )
+    parser.add_argument(
+        "--zookeeper-hosts",
+        help="ZooKeeper hosts (comma-separated)",
+        default=os.getenv("ZOOKEEPER_HOSTS", "localhost:2181"),
+    )
+    parser.add_argument(
+        "--connection-timeout",
+        type=int,
+        help="Connection timeout in seconds",
+        default=int(os.getenv("CONNECTION_TIMEOUT", 10)),
+    )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse"],
+        default="sse",
+        help="Transport mode (stdio or sse)",
+    )
+    parser.add_argument(
+        "--host", default="0.0.0.0", help="Host to bind to (for SSE mode)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=8080, help="Port to listen on (for SSE mode)"
+    )
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        default="INFO",
+        help="Set the logging level",
+    )
+
     args = parser.parse_args()
-    
+
     # Configure logging
     logging.basicConfig(level=getattr(logging, args.log_level))
-    
+
     server = SolrMCPServer(
         mcp_port=args.mcp_port,
         solr_base_url=args.solr_base_url,
         zookeeper_hosts=args.zookeeper_hosts.split(","),
         connection_timeout=args.connection_timeout,
-        stdio=(args.transport == 'stdio')
+        stdio=(args.transport == "stdio"),
     )
 
-    if args.transport == 'stdio':
+    if args.transport == "stdio":
         server.run()
     else:
         mcp_server = server.mcp._mcp_server  # noqa: WPS437
         starlette_app = create_starlette_app(mcp_server, debug=True)
         import uvicorn
+
         uvicorn.run(starlette_app, host=args.host, port=args.port)
+
 
 if __name__ == "__main__":
     main()

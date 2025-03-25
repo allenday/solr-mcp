@@ -2,13 +2,15 @@
 
 import pytest
 
-from solr_mcp.solr.query.parser import QueryParser
 from solr_mcp.solr.exceptions import QueryError
+from solr_mcp.solr.query.parser import QueryParser
+
 
 @pytest.fixture
 def query_parser():
     """Create QueryParser instance for testing."""
     return QueryParser()
+
 
 class TestQueryParser:
     """Test cases for QueryParser."""
@@ -34,7 +36,7 @@ class TestQueryParser:
         """Test parsing valid SELECT query."""
         query = "SELECT id, title FROM collection1"
         ast, collection, fields = query_parser.parse_select(query)
-        
+
         assert ast is not None
         assert collection == "collection1"
         assert fields == ["id", "title"]
@@ -42,7 +44,7 @@ class TestQueryParser:
     def test_parse_select_no_select(self, query_parser):
         """Test parsing non-SELECT query."""
         query = "INSERT INTO collection1 (id) VALUES (1)"
-        
+
         with pytest.raises(QueryError) as exc_info:
             query_parser.parse_select(query)
         assert exc_info.type == QueryError
@@ -50,7 +52,7 @@ class TestQueryParser:
     def test_parse_select_no_from(self, query_parser):
         """Test parsing query without FROM clause."""
         query = "SELECT id, title"
-        
+
         with pytest.raises(QueryError) as exc_info:
             query_parser.parse_select(query)
         assert exc_info.type == QueryError
@@ -59,7 +61,7 @@ class TestQueryParser:
         """Test parsing query with aliased fields."""
         query = "SELECT id as doc_id, title as doc_title FROM collection1"
         ast, collection, fields = query_parser.parse_select(query)
-        
+
         assert ast is not None
         assert collection == "collection1"
         assert "doc_id" in fields
@@ -69,7 +71,7 @@ class TestQueryParser:
         """Test parsing query with * selector."""
         query = "SELECT * FROM collection1"
         ast, collection, fields = query_parser.parse_select(query)
-        
+
         assert ast is not None
         assert collection == "collection1"
         assert "*" in fields
@@ -77,7 +79,7 @@ class TestQueryParser:
     def test_parse_select_invalid_syntax(self, query_parser):
         """Test parsing query with invalid syntax."""
         query = "INVALID SQL"
-        
+
         with pytest.raises(QueryError) as exc_info:
             query_parser.parse_select(query)
         assert exc_info.type == QueryError
@@ -92,4 +94,4 @@ class TestQueryParser:
         """Test extracting fields from multiple sort specifications."""
         sort_spec = "title desc, id asc"
         fields = query_parser.extract_sort_fields(sort_spec)
-        assert fields == ["title", "id"] 
+        assert fields == ["title", "id"]

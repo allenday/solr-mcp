@@ -1,12 +1,17 @@
 """Tests for Ollama vector provider."""
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 import requests
 
 from solr_mcp.vector_provider.clients.ollama import OllamaVectorProvider
-from solr_mcp.vector_provider.exceptions import VectorGenerationError, VectorConnectionError
 from solr_mcp.vector_provider.constants import DEFAULT_OLLAMA_CONFIG, MODEL_DIMENSIONS
+from solr_mcp.vector_provider.exceptions import (
+    VectorConnectionError,
+    VectorGenerationError,
+)
+
 
 @pytest.fixture
 def mock_response():
@@ -16,10 +21,12 @@ def mock_response():
     mock.raise_for_status.return_value = None
     return mock
 
+
 @pytest.fixture
 def provider():
     """Create OllamaVectorProvider instance with default config."""
     return OllamaVectorProvider()
+
 
 def test_init_with_defaults():
     """Test initialization with default values."""
@@ -29,13 +36,14 @@ def test_init_with_defaults():
     assert provider.timeout == DEFAULT_OLLAMA_CONFIG["timeout"]
     assert provider.retries == DEFAULT_OLLAMA_CONFIG["retries"]
 
+
 def test_init_with_custom_config():
     """Test initialization with custom configuration."""
     custom_config = {
         "model": "custom-model",
         "base_url": "http://custom:8080",
         "timeout": 60,
-        "retries": 5
+        "retries": 5,
     }
     provider = OllamaVectorProvider(**custom_config)
     assert provider.model == custom_config["model"]
@@ -43,13 +51,15 @@ def test_init_with_custom_config():
     assert provider.timeout == custom_config["timeout"]
     assert provider.retries == custom_config["retries"]
 
+
 @pytest.mark.asyncio
 async def test_get_embedding_success(provider, mock_response):
     """Test successful embedding generation."""
-    with patch('requests.post', return_value=mock_response):
+    with patch("requests.post", return_value=mock_response):
         result = await provider.get_vector("test text")
         assert result == [0.1, 0.2, 0.3]
-        
+
+
 @pytest.mark.asyncio
 async def test_get_embedding_with_model(provider):
     """Test embedding generation with specific model."""
@@ -57,41 +67,50 @@ async def test_get_embedding_with_model(provider):
     mock_response.status_code = 200
     mock_response.json.return_value = {"embedding": [0.1, 0.2, 0.3]}
     mock_response.raise_for_status = Mock()
-    
-    with patch('requests.post') as mock_post:
+
+    with patch("requests.post") as mock_post:
         mock_post.return_value = mock_response
         result = await provider.get_vector("test text", "custom-model")
         assert result == [0.1, 0.2, 0.3]
-        
+
         # Verify the correct model was used
         call_args = mock_post.call_args[1]
-        sent_data = call_args['json']
-        assert sent_data['model'] == 'custom-model'
-        assert sent_data['prompt'] == 'test text'
+        sent_data = call_args["json"]
+        assert sent_data["model"] == "custom-model"
+        assert sent_data["prompt"] == "test text"
+
 
 @pytest.mark.asyncio
 async def test_get_embedding_retry_success(provider, mock_response):
     """Test successful retry after initial failure."""
     fail_response = Mock()
-    fail_response.raise_for_status.side_effect = requests.exceptions.RequestException("Test error")
-    
-    with patch('requests.post') as mock_post:
+    fail_response.raise_for_status.side_effect = requests.exceptions.RequestException(
+        "Test error"
+    )
+
+    with patch("requests.post") as mock_post:
         mock_post.side_effect = [fail_response, mock_response]
         result = await provider.get_vector("test text")
         assert result == [0.1, 0.2, 0.3]
         assert mock_post.call_count == 2
 
+
 @pytest.mark.asyncio
 async def test_get_embedding_all_retries_fail(provider):
     """Test when all retry attempts fail."""
     fail_response = Mock()
-    fail_response.raise_for_status.side_effect = requests.exceptions.RequestException("Test error")
+    fail_response.raise_for_status.side_effect = requests.exceptions.RequestException(
+        "Test error"
+    )
 
-    with patch('requests.post', return_value=fail_response):
+    with patch("requests.post", return_value=fail_response):
         with pytest.raises(Exception) as exc_info:
             await provider.get_vector("test text")
         # Update to match new error message format which includes model name
-        assert "Failed to get vector with model" in str(exc_info.value) and "after" in str(exc_info.value)
+        assert "Failed to get vector with model" in str(
+            exc_info.value
+        ) and "after" in str(exc_info.value)
+
 
 @pytest.mark.asyncio
 async def test_execute_vector_search_success(provider):
@@ -99,10 +118,10 @@ async def test_execute_vector_search_success(provider):
     mock_client = Mock()
     mock_client.search.return_value = {"response": {"docs": []}}
     vector = [0.1, 0.2, 0.3]
-    
+
     result = await provider.execute_vector_search(mock_client, vector, top_k=5)
     assert result == {"response": {"docs": []}}
-    
+
     # Verify search was called with correct KNN query
     mock_client.search.assert_called_once()
     call_args = mock_client.search.call_args[1]
@@ -110,38 +129,40 @@ async def test_execute_vector_search_success(provider):
     assert "topK=5" in call_args["knn"]
     assert "0.1,0.2,0.3" in call_args["knn"]
 
+
 @pytest.mark.asyncio
 async def test_execute_vector_search_error(provider):
     """Test vector search with error."""
     mock_client = Mock()
     mock_client.search.side_effect = Exception("Search failed")
     vector = [0.1, 0.2, 0.3]
-    
+
     with pytest.raises(Exception) as exc_info:
         await provider.execute_vector_search(mock_client, vector)
     assert "Vector search failed" in str(exc_info.value)
 
+
 @pytest.mark.asyncio
 async def test_get_vectors_batch(provider, mock_response):
     """Test getting vectors for multiple texts."""
-    mock_response.json.return_value = {
-        "embedding": [0.1] * 768
-    }
-    with patch('requests.post', return_value=mock_response):
+    mock_response.json.return_value = {"embedding": [0.1] * 768}
+    with patch("requests.post", return_value=mock_response):
         texts = ["text1", "text2"]
         result = await provider.get_vectors(texts)
         assert len(result) == 2
         assert all(isinstance(v, list) for v in result)
         assert all(len(v) == 768 for v in result)
 
+
 def test_vector_dimension(provider):
     """Test vector_dimension property returns correct value."""
     assert provider.vector_dimension == MODEL_DIMENSIONS[provider.model]
-    
+
     # Test with custom model
     custom_provider = OllamaVectorProvider(model="custom-model")
     assert custom_provider.vector_dimension == 768  # Default dimension
 
+
 def test_model_name(provider):
     """Test model_name property returns correct value."""
-    assert provider.model_name == provider.model 
+    assert provider.model_name == provider.model
