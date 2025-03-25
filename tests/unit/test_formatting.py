@@ -67,7 +67,8 @@ class TestFormatting:
                     {"id": "1", "title": "Test 1"},
                     {"id": "2", "title": "Test 2"}
                 ],
-                "numFound": 2
+                "numFound": 2,
+                "start": 0
             }
         }
 
@@ -83,7 +84,8 @@ class TestFormatting:
         response = {
             "result-set": {
                 "docs": [],
-                "numFound": 0
+                "numFound": 0,
+                "start": 0
             }
         }
 

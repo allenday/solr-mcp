@@ -16,6 +16,8 @@ from solr_mcp.server import SolrMCPServer
 from solr_mcp.solr.interfaces import CollectionProvider, VectorSearchProvider
 from solr_mcp.solr.config import SolrConfig
 from solr_mcp.solr.exceptions import ConnectionError, QueryError, SolrError
+from solr_mcp.solr.schema import FieldManager
+from solr_mcp.solr.query import QueryBuilder
 
 # Mock response data
 MOCK_COLLECTIONS = ["collection1", "collection2"]
@@ -88,13 +90,30 @@ MOCK_SCHEMA_RESPONSE = {
 def mock_pysolr():
     """Mock pysolr.Solr instance."""
     mock = Mock(spec=pysolr.Solr)
-    mock.search.return_value = {
-        "response": {
-            "docs": [{"id": "1"}],
-            "numFound": 1,
-            "maxScore": 1.0
+    
+    def mock_search(*args, **kwargs):
+        # Check if this is a vector/knn query
+        if args and '{!knn' in args[0]:
+            return {
+                "response": {
+                    "docs": [
+                        {"id": "1", "score": 0.95, "_vector_distance_": 0.05},
+                        {"id": "2", "score": 0.85, "_vector_distance_": 0.15}
+                    ],
+                    "numFound": 2,
+                    "maxScore": 0.95
+                }
+            }
+        # Default response for regular queries
+        return {
+            "response": {
+                "docs": [{"id": "1"}],
+                "numFound": 1,
+                "maxScore": 1.0
+            }
         }
-    }
+    
+    mock.search.side_effect = mock_search
     return mock
 
 @pytest.fixture
@@ -121,26 +140,25 @@ class MockCollectionProvider(CollectionProvider):
         return self.collections
 
 class MockVectorProvider(VectorSearchProvider):
-    """Mock implementation of VectorSearchProvider."""
-    
-    def __init__(self):
-        """Initialize with mock methods."""
-        self._get_embedding = MagicMock(return_value=[0.1, 0.2, 0.3])
-        self._execute_vector_search = MagicMock(return_value={
-            "response": {
-                "docs": [{"id": "1", "score": 0.95}],
-                "numFound": 1,
-                "maxScore": 0.95
+    """Mock vector provider for testing."""
+
+    async def execute_vector_search(self, client, vector, top_k=10):
+        """Mock vector search execution."""
+        return {
+            'response': {
+                'docs': [
+                    {'_docid_': '1', 'score': 0.9, '_vector_distance_': 0.1},
+                    {'_docid_': '2', 'score': 0.8, '_vector_distance_': 0.2},
+                    {'_docid_': '3', 'score': 0.7, '_vector_distance_': 0.3}
+                ],
+                'numFound': 3,
+                'start': 0
             }
-        })
-        
+        }
+
     async def get_embedding(self, text: str) -> List[float]:
-        """Return mock embedding."""
-        return self._get_embedding(text)
-        
-    def execute_vector_search(self, client: Any, vector: List[float], top_k: Optional[int] = None) -> Dict[str, Any]:
-        """Return mock vector search results."""
-        return self._execute_vector_search(client, vector, top_k)
+        """Mock text to vector conversion."""
+        return [0.1, 0.2, 0.3]
 
 @pytest.fixture
 def mock_solr_client():
@@ -242,34 +260,30 @@ def mock_singleton_server():
 
 @pytest.fixture
 def mock_field_manager():
-    """Create mock field manager."""
-    field_manager = MagicMock()
-    
-    # Set up collection validation
-    def validate_collection_exists(collection):
-        valid_collections = ["test_collection", "collection1"]
-        return collection in valid_collections
-    field_manager.validate_collection_exists.side_effect = validate_collection_exists
-    
-    # Set up field validation
-    def validate_field_exists(field, collection):
-        valid_fields = {
-            "test_collection": ["id", "title", "content", "*"],
-            "collection1": ["id", "title", "content", "status", "*"]
-        }
-        return field in valid_fields.get(collection, [])
-    field_manager.validate_field_exists.side_effect = validate_field_exists
-    
-    # Set up sort field validation
-    def validate_sort_field(field, collection):
-        valid_sort_fields = {
-            "test_collection": ["id", "title", "score"],
-            "collection1": ["id", "title", "score"]
-        }
-        return field in valid_sort_fields.get(collection, [])
-    field_manager.validate_sort_field.side_effect = validate_sort_field
-    
-    return field_manager
+    """Mock field manager for testing list_fields tool."""
+    manager = MagicMock()
+    manager.get_collection_fields.return_value = {
+        "fields": [
+            {
+                "name": "id",
+                "type": "string",
+                "indexed": True,
+                "stored": True,
+                "docValues": True,
+                "multiValued": False
+            },
+            {
+                "name": "_text_",
+                "type": "text_general",
+                "indexed": True,
+                "stored": False,
+                "docValues": False,
+                "multiValued": True,
+                "copies_from": ["title", "content"]
+            }
+        ]
+    }
+    return manager
 
 @pytest.fixture
 def mock_schema_response():
@@ -352,17 +366,26 @@ def mock_kazoo_client(request):
     if mock_type == "success":
         mock.get_children.return_value = ["collection1", "collection2"]
         mock.exists.return_value = True
+        mock.start.return_value = None
+        mock.stop.return_value = None
     elif mock_type == "no_collections":
         mock.exists.return_value = False
         mock.get_children.side_effect = NoNodeError
+        mock.start.return_value = None
+        mock.stop.return_value = None
     elif mock_type == "empty":
         mock.exists.return_value = True
         mock.get_children.return_value = []
+        mock.start.return_value = None
+        mock.stop.return_value = None
     elif mock_type == "error":
         mock.exists.return_value = True
-        mock.get_children.side_effect = ConnectionLoss
+        mock.get_children.side_effect = ConnectionLoss("ZooKeeper error")
+        mock.start.return_value = None
+        mock.stop.return_value = None
     elif mock_type == "connection_error":
-        mock.start.side_effect = ConnectionLoss
+        mock.start.side_effect = ConnectionLoss("ZooKeeper connection error")
+        mock.stop.return_value = None
         
     return mock
 
@@ -374,10 +397,12 @@ def mock_kazoo_client_factory(mock_kazoo_client):
         yield mock_factory
 
 @pytest.fixture
-def provider():
+def provider(mock_kazoo_client):
     """Create ZooKeeperCollectionProvider instance."""
     from solr_mcp.solr.zookeeper import ZooKeeperCollectionProvider
-    return ZooKeeperCollectionProvider(hosts=["localhost:2181"])
+    provider = ZooKeeperCollectionProvider(hosts=["localhost:2181"])
+    provider.zk = mock_kazoo_client  # Ensure the mock is used
+    return provider
 
 @pytest.fixture
 def mock_schema_requests(mock_http_client):
@@ -491,3 +516,198 @@ def mock_solr_instance(mock_pysolr):
     """
     with patch("pysolr.Solr", return_value=mock_pysolr):
         yield mock_pysolr 
+
+@pytest.fixture
+def mock_ollama_response():
+    """Mock successful Ollama API response."""
+    return {
+        "embedding": [0.1, 0.2, 0.3, 0.4, 0.5],
+        "model": "nomic-embed-text"
+    }
+
+@pytest.fixture
+def mock_ollama_error_response():
+    """Mock failed Ollama API response."""
+    response = requests.Response()
+    response.status_code = 500
+    response._content = b'{"error": "Internal server error"}'
+    return response
+
+@pytest.fixture
+def mock_requests_post(mock_ollama_response):
+    """Mock requests.post for Ollama API calls."""
+    with patch('requests.post') as mock_post:
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(mock_ollama_response).encode('utf-8')
+        mock_post.return_value = response
+        yield mock_post 
+
+@pytest.fixture
+def mock_config():
+    """Create a mock SolrConfig."""
+    config = Mock(spec=SolrConfig)
+    config.solr_base_url = "http://localhost:8983/solr"
+    config.zookeeper_hosts = ["localhost:2181"]
+    config.default_collection = "test_collection"
+    config.connection_timeout = 30
+    config.embedding_field = "vector"
+    config.default_top_k = 10
+    return config
+
+@pytest.fixture
+def mock_collection_provider():
+    """Create a mock CollectionProvider."""
+    provider = AsyncMock(spec=CollectionProvider)
+    provider.list_collections.return_value = ["test_collection", "other_collection"]
+    return provider
+
+@pytest.fixture
+def mock_solr_client():
+    """Create a mock pysolr.Solr client."""
+    client = Mock(spec=pysolr.Solr)
+    client.search.return_value = {
+        "response": {
+            "docs": [{"id": "1", "title": "Test"}],
+            "numFound": 1,
+            "start": 0
+        }
+    }
+    return client
+
+@pytest.fixture
+def mock_field_manager():
+    """Create a mock FieldManager."""
+    manager = AsyncMock(spec=FieldManager)
+    manager.get_field_info.return_value = {
+        "name": "test_field",
+        "type": "text_general",
+        "indexed": True,
+        "stored": True
+    }
+    return manager
+
+@pytest.fixture
+def mock_vector_provider():
+    """Create a mock VectorSearchProvider."""
+    provider = AsyncMock(spec=VectorSearchProvider)
+    provider.get_embedding.return_value = [0.1, 0.2, 0.3]
+    provider.execute_vector_search.return_value = {
+        "response": {
+            "docs": [{"id": "1", "score": 0.95}],
+            "numFound": 1
+        }
+    }
+    return provider
+
+@pytest.fixture
+def mock_query_builder():
+    """Create a mock QueryBuilder."""
+    builder = Mock(spec=QueryBuilder)
+    builder.parse_and_validate_select.return_value = (
+        Mock(args={"limit": 10, "offset": 0}),  # AST
+        "test_collection",  # Collection name
+        ["id", "title"]  # Fields
+    )
+    return builder
+
+@pytest.fixture
+def mock_response():
+    """Create a mock HTTP response."""
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "collections": ["test_collection", "other_collection"],
+        "schema": {
+            "fields": [
+                {"name": "id", "type": "string"},
+                {"name": "title", "type": "text_general"}
+            ],
+            "copyFields": [
+                {"source": "title", "dest": "_text_"}
+            ]
+        }
+    }
+    return response 
+
+
+@pytest.fixture
+def mock_response():
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "collections": ["test_collection"]
+    }
+    return response
+
+@pytest.fixture
+def mock_error_response():
+    response = Mock()
+    response.status_code = 500
+    response.text = "Schema Error"
+    return response
+
+@pytest.fixture
+def mock_query_builder():
+    builder = Mock()
+    parser = Mock()
+    parser.preprocess_query = Mock(return_value="preprocessed query")
+    builder.parser = parser
+    builder.parse_and_validate_select = Mock(return_value=(
+        Mock(args={}),
+        "test_collection",
+        ["id", "title"]
+    ))
+    builder.build_vector_query = Mock(return_value={
+        'fq': ['1', '2', '3'],
+        'rows': 10
+    })
+    return builder
+
+@pytest.fixture
+def client(mock_config, mock_collection_provider, mock_field_manager, mock_vector_provider, mock_query_builder):
+    return SolrClient(
+        config=mock_config,
+        collection_provider=mock_collection_provider,
+        field_manager=mock_field_manager,
+        vector_provider=mock_vector_provider,
+        query_builder=mock_query_builder
+    )
+
+@pytest.fixture
+def mock_solr_client():
+    client = Mock(spec=pysolr.Solr)
+    client.search.return_value = {
+        'response': {
+            'docs': [{'_docid_': '1', 'score': 0.9, '_vector_distance_': 0.1}],
+            'numFound': 1
+        }
+    }
+    return client
+
+@pytest.fixture
+def mock_aiohttp_session():
+    """Create a mock aiohttp session with proper async context management."""
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.headers = {'Content-Type': 'application/json'}
+    mock_response.text = AsyncMock(return_value='{"result-set": {"docs": [{"id": "1"}], "numFound": 1}}')
+    mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_response.__aexit__ = AsyncMock()
+
+    mock_session = AsyncMock()
+    mock_session.post = AsyncMock(return_value=mock_response)
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock()
+
+    # Mock the vector search response
+    mock_vector_response = {
+        'response': {
+            'docs': [{'_docid_': '1', 'score': 0.9, '_vector_distance_': 0.1}],
+            'numFound': 1
+        }
+    }
+    mock_solr_response = AsyncMock()
+    mock_solr_response.search = AsyncMock(return_value=mock_vector_response)
+
+    return mock_session

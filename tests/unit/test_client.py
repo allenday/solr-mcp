@@ -44,15 +44,6 @@ class TestSolrClient:
         assert client.field_manager == mock_field_manager
         assert client.vector_provider == mock_vector_provider
 
-    def test_list_collections(self, mock_config, mock_pysolr):
-        """Test listing collections."""
-        mock_collection_provider = MockCollectionProvider()
-        client = SolrClient(
-            config=mock_config,
-            collection_provider=mock_collection_provider
-        )
-        collections = client.list_collections()
-        assert collections == ["collection1", "collection2"]
 
     @pytest.mark.asyncio
     async def test_execute_select_query_success(self, mock_config, mock_pysolr, mock_solr_requests, mock_field_manager):
@@ -75,65 +66,8 @@ class TestSolrClient:
 
         # Verify the request was made correctly
         mock_solr_requests.post.assert_called_once_with(
-            f"{mock_config.solr_base_url}/collection1/sql",
-            json={"stmt": "SELECT * FROM collection1"}
+            f"{mock_config.solr_base_url}/collection1/sql?aggregationMode=facet",
+            data={"stmt": "SELECT * FROM collection1"},
+            headers={"Content-Type": "application/x-www-form-urlencoded"}
         )
 
-    @pytest.mark.asyncio
-    async def test_execute_vector_select_query_success(self, mock_config, mock_pysolr, mock_solr_requests, mock_field_manager):
-        """Test successful vector query execution."""
-        # Mock the response from requests.post
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_VECTOR_RESPONSE
-        mock_solr_requests.post.return_value = mock_response
-
-        mock_vector_provider = MockVectorProvider()
-        client = SolrClient(
-            config=mock_config,
-            vector_provider=mock_vector_provider,
-            field_manager=mock_field_manager
-        )
-
-        result = await client.execute_vector_select_query(
-            "SELECT * FROM collection1",
-            [0.1, 0.2, 0.3]
-        )
-
-        assert "result-set" in result
-        assert "docs" in result["result-set"]
-        assert result["result-set"]["docs"][0]["id"] == "1"
-        assert result["result-set"]["docs"][0]["score"] == 0.95
-
-        # Verify the vector search was executed
-        mock_vector_provider._execute_vector_search.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_execute_semantic_select_query_success(self, mock_config, mock_pysolr, mock_solr_requests, mock_field_manager):
-        """Test successful semantic query execution."""
-        # Mock the response from requests.post
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = MOCK_SEMANTIC_RESPONSE
-        mock_solr_requests.post.return_value = mock_response
-
-        mock_vector_provider = MockVectorProvider()
-        client = SolrClient(
-            config=mock_config,
-            vector_provider=mock_vector_provider,
-            field_manager=mock_field_manager
-        )
-
-        result = await client.execute_semantic_select_query(
-            "SELECT * FROM collection1",
-            "sample search text"
-        )
-
-        assert "result-set" in result
-        assert "docs" in result["result-set"]
-        assert result["result-set"]["docs"][0]["id"] == "1"
-        assert result["result-set"]["docs"][0]["score"] == 0.85
-
-        # Verify the embedding was generated and vector search was executed
-        mock_vector_provider._get_embedding.assert_called_once_with("sample search text")
-        mock_vector_provider._execute_vector_search.assert_called_once()

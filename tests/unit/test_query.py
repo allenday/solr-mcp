@@ -225,7 +225,7 @@ class TestQueryBuilder:
         doc_ids = ["1", "2", "3"]
         result = query_builder.build_vector_query(query, doc_ids)
         assert "fq" in result
-        assert result["fq"] == "id:(1 OR 2 OR 3)"
+        assert result["fq"] == "_docid_:(1 OR 2 OR 3)"
 
     def test_build_vector_query_with_existing_where(self, query_builder):
         """Test building vector query with existing WHERE clause."""
@@ -234,7 +234,7 @@ class TestQueryBuilder:
         result = query_builder.build_vector_query(base_query, doc_ids)
         assert "fq" in result
         assert 'status:"active"' in result["fq"]
-        assert "id:(1 OR 2)" in result["fq"]
+        assert "_docid_:(1 OR 2)" in result["fq"]
 
     def test_build_vector_query_empty_ids(self, query_builder):
         """Test building vector query with empty document IDs."""
