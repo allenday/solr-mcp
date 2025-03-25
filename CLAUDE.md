@@ -33,6 +33,9 @@ python scripts/unified_index.py data/processed/bitcoin_sections.json --collectio
 - Coverage: `poetry run pytest --cov=solr_mcp`
 - Lint: `poetry run flake8 solr_mcp tests`
 - Type check: `poetry run mypy solr_mcp`
+- Format code: `poetry run black solr_mcp`
+- Sort imports: `poetry run isort solr_mcp`
+- Run all formatting: `poetry run black solr_mcp && poetry run isort solr_mcp`
 
 ## Docker Commands
 - Start SolrCloud: `docker-compose up -d`

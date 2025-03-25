@@ -103,3 +103,35 @@ If you encounter issues:
 2. Verify the collection exists: http://localhost:8983/solr/#/~collections
 3. Run the diagnostic script: `python scripts/diagnose_search.py`
 4. Check the server logs for errors
+
+## Setup linting and formatting
+
+We use several tools to maintain code quality:
+
+```bash
+# Run code formatters (black and isort)
+poetry run python scripts/format.py
+# Or use the poetry script
+poetry run format
+
+# Run linters (flake8 and mypy)
+poetry run python scripts/lint.py
+# Or use the poetry script
+poetry run lint
+```
+
+You can also run individual tools:
+
+```bash
+# Format code with Black
+poetry run black solr_mcp tests
+
+# Sort imports with isort
+poetry run isort solr_mcp tests
+
+# Run flake8 linter
+poetry run flake8 solr_mcp tests
+
+# Run mypy type checker
+poetry run mypy solr_mcp
+```
