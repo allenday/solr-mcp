@@ -133,5 +133,5 @@ poetry run isort solr_mcp tests
 poetry run flake8 solr_mcp tests
 
 # Run mypy type checker
-poetry run mypy solr_mcp
+poetry run mypy solr_mcp tests
 ```

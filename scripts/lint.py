@@ -34,7 +34,7 @@ def main() -> int:
         success = False
     
     # Run mypy
-    if not run_command(["mypy", "solr_mcp"]):
+    if not run_command(["mypy", "solr_mcp", "tests"]):
         success = False
     
     if success:
