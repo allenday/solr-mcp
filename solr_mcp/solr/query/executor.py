@@ -125,16 +125,38 @@ class QueryExecutor:
             async with aiohttp.ClientSession() as session:
                 # Add vector result filtering
                 stmt = query  # Start with original query
+                
+                # Check if query already has WHERE clause
+                has_where = 'WHERE' in stmt.upper()
+                has_limit = 'LIMIT' in stmt.upper()
+                
+                # Extract limit part if present to reposition it
+                limit_part = ""
+                if has_limit:
+                    # Use case-insensitive find and split
+                    limit_index = stmt.upper().find('LIMIT')
+                    stmt_before_limit = stmt[:limit_index].strip()
+                    limit_part = stmt[limit_index + 5:].strip()  # +5 to skip "LIMIT"
+                    stmt = stmt_before_limit  # This is everything before LIMIT
+                
+                # Add WHERE clause at the proper position
                 if doc_ids:
                     # Add filter query if present
-                    if doc_ids:
-                        stmt = f"{stmt} WHERE id IN ({','.join(doc_ids)})"
+                    if has_where:
+                        stmt = f"{stmt} AND id IN ({','.join(doc_ids)})"
                     else:
-                        # No vector search results, return empty result set
+                        stmt = f"{stmt} WHERE id IN ({','.join(doc_ids)})"
+                else:
+                    # No vector search results, return empty result set
+                    if has_where:
+                        stmt = f"{stmt} AND 1=0"  # Always false condition
+                    else:
                         stmt = f"{stmt} WHERE 1=0"  # Always false condition
                 
-                if 'LIMIT' not in stmt.upper():
-                    # Add default limit if not present
+                # Add limit back at the end if it was present or add default limit
+                if limit_part:
+                    stmt = f"{stmt} LIMIT {limit_part}"
+                elif not has_limit:
                     stmt = f"{stmt} LIMIT 10"
                 
                 logger.debug(f"Executing SQL query: {stmt}")
