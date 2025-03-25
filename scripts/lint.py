@@ -25,14 +25,16 @@ def run_command(command: List[str]) -> bool:
 
 def main() -> int:
     """Run all linting tools."""
-    print("Running critical linting checks only...")
+    print("Running full linting checks...")
     
-    # For now, we'll only check for syntax errors and undefined names
-    # to avoid overwhelming with all linting issues at once
     success = True
     
-    # Run flake8 with limited checks (syntax errors, undefined names)
-    if not run_command(["flake8", "--select=E9,F63,F7,F82", "--statistics", "solr_mcp", "tests"]):
+    # Run flake8 with all checks
+    if not run_command(["flake8", "solr_mcp", "tests"]):
+        success = False
+    
+    # Run mypy type checking
+    if not run_command(["mypy", "solr_mcp", "tests"]):
         success = False
     
     if success:
