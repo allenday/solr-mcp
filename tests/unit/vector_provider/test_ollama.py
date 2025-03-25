@@ -47,7 +47,7 @@ def test_init_with_custom_config():
 async def test_get_embedding_success(provider, mock_response):
     """Test successful embedding generation."""
     with patch('requests.post', return_value=mock_response):
-        result = await provider.get_embedding("test text")
+        result = await provider.get_vector("test text")
         assert result == [0.1, 0.2, 0.3]
 
 @pytest.mark.asyncio
@@ -58,7 +58,7 @@ async def test_get_embedding_retry_success(provider, mock_response):
     
     with patch('requests.post') as mock_post:
         mock_post.side_effect = [fail_response, mock_response]
-        result = await provider.get_embedding("test text")
+        result = await provider.get_vector("test text")
         assert result == [0.1, 0.2, 0.3]
         assert mock_post.call_count == 2
 
@@ -67,11 +67,11 @@ async def test_get_embedding_all_retries_fail(provider):
     """Test when all retry attempts fail."""
     fail_response = Mock()
     fail_response.raise_for_status.side_effect = requests.exceptions.RequestException("Test error")
-    
+
     with patch('requests.post', return_value=fail_response):
         with pytest.raises(Exception) as exc_info:
-            await provider.get_embedding("test text")
-        assert "Failed to get embeddings after" in str(exc_info.value)
+            await provider.get_vector("test text")
+        assert "Failed to get vector after" in str(exc_info.value)
 
 @pytest.mark.asyncio
 async def test_execute_vector_search_success(provider):
@@ -102,13 +102,17 @@ async def test_execute_vector_search_error(provider):
     assert "Vector search failed" in str(exc_info.value)
 
 @pytest.mark.asyncio
-async def test_get_embeddings_batch(provider, mock_response):
-    """Test getting embeddings for multiple texts."""
+async def test_get_vectors_batch(provider, mock_response):
+    """Test getting vectors for multiple texts."""
+    mock_response.json.return_value = {
+        "embedding": [0.1] * 768
+    }
     with patch('requests.post', return_value=mock_response):
         texts = ["text1", "text2"]
-        result = await provider.get_embeddings(texts)
+        result = await provider.get_vectors(texts)
         assert len(result) == 2
-        assert all(v == [0.1, 0.2, 0.3] for v in result)
+        assert all(isinstance(v, list) for v in result)
+        assert all(len(v) == 768 for v in result)
 
 def test_vector_dimension(provider):
     """Test vector_dimension property returns correct value."""

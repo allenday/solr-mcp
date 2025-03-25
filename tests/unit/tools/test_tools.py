@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from solr_mcp.tools.solr_list_collections import execute_list_collections
+from solr_mcp.tools.solr_list_fields import execute_list_fields
 from solr_mcp.tools.solr_select import execute_select_query
-from solr_mcp.tools.solr_vector_select import execute_vector_select_query
 from solr_mcp.tools.solr_semantic_select import execute_semantic_select_query
+from solr_mcp.tools.solr_vector_select import execute_vector_select_query
 
 @pytest.mark.asyncio
 class TestListCollectionsTool:
@@ -27,6 +28,33 @@ class TestListCollectionsTool:
         # Verify result
         assert result == ["collection1", "collection2"]
         mock_solr_client.list_collections.assert_called_once()
+        
+@pytest.mark.asyncio
+class TestListFieldsTool:
+    """Test list fields tool."""
+    
+    async def test_execute_list_fields(self, mock_server_instance):
+        """Test list fields execution."""
+        # Setup mock
+        mock_solr_client = AsyncMock()
+        mock_solr_client.list_fields.return_value = [
+            {"name": "field1"}, 
+            {"name": "field2"}
+        ]
+        mock_server_instance.solr_client = mock_solr_client
+        
+        # Execute tool
+        result = await execute_list_fields(mock_server_instance, "test")
+        
+        # Verify result
+        assert result == {
+            "fields": [
+                {"name": "field1"}, 
+                {"name": "field2"}
+            ],
+            "collection": "test"
+        }
+        mock_solr_client.list_fields.assert_called_once_with("test")
         
 @pytest.mark.asyncio
 class TestSelectQueryTool:
@@ -51,7 +79,7 @@ class TestSelectQueryTool:
         
 @pytest.mark.asyncio
 class TestVectorSelectTool:
-    """Test vector select tool."""
+    """Test vector select query tool."""
     
     async def test_execute_vector_select_query(self, mock_server_instance):
         """Test vector select query execution."""
@@ -65,15 +93,16 @@ class TestVectorSelectTool:
         # Execute tool
         query = "SELECT * FROM collection1"
         vector = [0.1, 0.2, 0.3]
-        result = await execute_vector_select_query(mock_server_instance, query, vector)
+        field = "vector_field"
+        result = await execute_vector_select_query(mock_server_instance, query, vector, field)
         
         # Verify result
         assert result == {"rows": [{"id": "1"}]}
-        mock_solr_client.execute_vector_select_query.assert_called_once_with(query, vector)
+        mock_solr_client.execute_vector_select_query.assert_called_once_with(query, vector, field)
         
 @pytest.mark.asyncio
 class TestSemanticSelectTool:
-    """Test semantic select tool."""
+    """Test semantic select query tool."""
     
     async def test_execute_semantic_select_query(self, mock_server_instance):
         """Test semantic select query execution."""
@@ -87,11 +116,12 @@ class TestSemanticSelectTool:
         # Execute tool
         query = "SELECT * FROM collection1"
         text = "sample search text"
-        result = await execute_semantic_select_query(mock_server_instance, query, text)
+        field = "vector_field"
+        result = await execute_semantic_select_query(mock_server_instance, query, text, field)
         
         # Verify result
         assert result == {"rows": [{"id": "1"}]}
-        mock_solr_client.execute_semantic_select_query.assert_called_once_with(query, text)
+        mock_solr_client.execute_semantic_select_query.assert_called_once_with(query, text, field)
         
 class TestToolMetadata:
     """Test tool metadata."""

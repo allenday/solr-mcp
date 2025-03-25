@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Script for indexing documents with text content in a unified Solr collection.
-Note: Vector embedding generation has been removed for simplicity.
 """
 
 import argparse
@@ -20,35 +19,35 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # OllamaClient is no longer used - we'll use mock vectors instead
 
 
-async def generate_embeddings(texts: List[str]) -> List[List[float]]:
-    """Generate mock embeddings for a list of texts.
+async def generate_vectors(texts: List[str]) -> List[List[float]]:
+    """Generate mock vectors for a list of texts.
     
     Args:
-        texts: List of text strings to generate embeddings for
+        texts: List of text strings to generate vectors for
         
     Returns:
-        List of dummy embedding vectors
+        List of dummy vectors
     """
     # Use numpy to generate consistent random vectors
     # Use a fixed seed for reproducibility
     np.random.seed(42)
     
     # Generate 768-dimensional vectors (same as nomic-embed-text)
-    embeddings = []
+    vectors = []
     
-    print(f"Generating mock embeddings for {len(texts)} documents...")
+    print(f"Generating mock vectors for {len(texts)} documents...")
     
     for i, text in enumerate(texts):
         # Generate a random vector, then normalize it
         vector = np.random.randn(768)
-        # Normalize to unit length (as typical for embeddings)
+        # Normalize to unit length (as typical for vector)
         vector = vector / np.linalg.norm(vector)
         # Convert to regular list for JSON serialization
-        embeddings.append(vector.tolist())
+        vectors.append(vector.tolist())
         if (i + 1) % 5 == 0:
-            print(f"Generated {i + 1}/{len(texts)} mock embeddings...")
+            print(f"Generated {i + 1}/{len(texts)} mock vector...")
     
-    return embeddings
+    return vectors
 
 
 def prepare_field_names(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,7 +104,7 @@ def prepare_field_names(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 async def index_documents(json_file: str, collection: str = "unified", commit: bool = True):
     """
-    Index documents with both text content and vector embeddings.
+    Index documents with both text content and vectors.
     
     Args:
         json_file: Path to the JSON file containing documents
@@ -116,7 +115,7 @@ async def index_documents(json_file: str, collection: str = "unified", commit: b
     with open(json_file, 'r', encoding='utf-8') as f:
         documents = json.load(f)
     
-    # Extract text for embedding generation
+    # Extract text for vector generation
     texts = []
     for doc in documents:
         # Use the 'text' field if it exists, otherwise use 'content'
@@ -127,18 +126,18 @@ async def index_documents(json_file: str, collection: str = "unified", commit: b
         else:
             texts.append(doc.get('title', ''))
     
-    # Generate embeddings
-    embeddings = await generate_embeddings(texts)
+    # Generate vectors
+    vectors = await generate_vectors(texts)
     
     # Prepare documents for indexing
     solr_docs = []
     for i, doc in enumerate(documents):
         doc_copy = doc.copy()
         
-        # Add embedding and metadata
-        doc_copy['embedding'] = embeddings[i]
+        # Add vector and metadata
+        doc_copy['embedding'] = vectors[i]
         doc_copy['vector_model'] = 'nomic-embed-text'
-        doc_copy['dimensions'] = len(embeddings[i])
+        doc_copy['dimensions'] = len(vectors[i])
         
         # Add current time as date_indexed if not present
         if 'date_indexed' not in doc_copy:

@@ -50,7 +50,7 @@ def mock_schema_requests():
                         "multiValued": False
                     },
                     {
-                        "name": "embedding",
+                        "name": "vector",
                         "type": "knn_vector",
                         "multiValued": False
                     }

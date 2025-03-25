@@ -1,8 +1,8 @@
-"""Constants for embeddings module."""
+"""Constants for vector module."""
 
 from typing import Dict, Any
 
-# Default configuration for embedding providers
+# Default configuration for vector providers
 DEFAULT_OLLAMA_CONFIG: Dict[str, Any] = {
     "base_url": "http://localhost:11434",
     "model": "nomic-embed-text",
@@ -19,5 +19,5 @@ OLLAMA_EMBEDDINGS_PATH = "/api/embeddings"
 
 # Model-specific constants
 MODEL_DIMENSIONS = {
-    "nomic-embed-text": 768  # 768-dimensional embeddings
+    "nomic-embed-text": 768  # 768-dimensional vectors
 } 

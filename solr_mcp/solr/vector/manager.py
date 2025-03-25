@@ -22,47 +22,45 @@ class VectorManager(VectorSearchProvider):
     def __init__(self, 
                  solr_client: 'SolrClient', 
                  client: Optional[OllamaVectorProvider] = None,
-                 embedding_field: str = "embedding",
                  default_top_k: int = 10):
         """Initialize VectorManager.
         
         Args:
             solr_client: SolrClient instance
             client: Optional vector provider client (defaults to OllamaVectorProvider)
-            embedding_field: Field name for vector embeddings
             default_top_k: Default number of results to return
         """
         self.solr_client = solr_client
         self.client = client or OllamaVectorProvider()
-        self.embedding_field = embedding_field
         self.default_top_k = default_top_k
         
-    async def get_embedding(self, text: str) -> List[float]:
-        """Get vector embedding for text.
+    async def get_vector(self, text: str) -> List[float]:
+        """Get vector vector for text.
         
         Args:
-            text: Text to get embedding for
+            text: Text to get vector for
             
         Returns:
-            Vector embedding as list of floats
+            Vector as list of floats
             
         Raises:
-            SolrError: If embedding fails
+            SolrError: If vector fails
         """
         if not self.client:
             raise SolrError("Vector operations unavailable - no Ollama client")
             
         try:
-            embedding = await self.client.get_embedding(text)
-            return embedding
+            vector = await self.client.get_vector(text)
+            return vector
         except Exception as e:
-            raise SolrError(f"Error getting embedding: {str(e)}")
+            raise SolrError(f"Error getting vector: {str(e)}")
             
-    def format_knn_query(self, vector: List[float], top_k: Optional[int] = None) -> str:
+    def format_knn_query(self, vector: List[float], field: str, top_k: Optional[int] = None) -> str:
         """Format KNN query for Solr.
         
         Args:
             vector: Query vector
+            field: DenseVector field to search against
             top_k: Number of results to return (optional)
             
         Returns:
@@ -74,15 +72,16 @@ class VectorManager(VectorSearchProvider):
         # Build KNN query
         if top_k is not None:
             knn_template = "{{!knn f={field} topK={k}}}{vector}"
-            return knn_template.format(field=self.embedding_field, k=int(top_k), vector=vector_str)
+            return knn_template.format(field=field, k=int(top_k), vector=vector_str)
         else:
             knn_template = "{{!knn f={field}}}{vector}"
-            return knn_template.format(field=self.embedding_field, vector=vector_str)
+            return knn_template.format(field=field, vector=vector_str)
         
     async def execute_vector_search(
         self,
         client: pysolr.Solr,
         vector: List[float],
+        field: str,
         top_k: Optional[int] = None,
         filter_query: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -91,6 +90,7 @@ class VectorManager(VectorSearchProvider):
         Args:
             client: pysolr.Solr client
             vector: Query vector
+            field: DenseVector field to search against
             top_k: Number of results to return
             filter_query: Optional filter query
             
@@ -102,7 +102,7 @@ class VectorManager(VectorSearchProvider):
         """
         try:
             # Format KNN query
-            knn_query = self.format_knn_query(vector, top_k)
+            knn_query = self.format_knn_query(vector, field, top_k)
             
             # Execute search
             results = client.search(

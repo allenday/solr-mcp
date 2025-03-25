@@ -13,12 +13,12 @@ class MockVectorProvider(VectorProvider):
         self._dimension = dimension
         self._model = "mock-model"
         
-    async def get_embedding(self, text: str) -> List[float]:
+    async def get_vector(self, text: str) -> List[float]:
         if text == "error":
             raise VectorGenerationError("Test error")
         return [0.1] * self._dimension
         
-    async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+    async def get_vectors(self, texts: List[str]) -> List[List[float]]:
         if any(t == "error" for t in texts):
             raise VectorGenerationError("Test error")
         return [[0.1] * self._dimension for _ in texts]
@@ -45,36 +45,36 @@ def test_vector_provider_requires_methods():
         IncompleteProvider()
 
 @pytest.mark.asyncio
-async def test_mock_provider_get_embedding():
-    """Test get_embedding implementation."""
+async def test_mock_provider_get_vector():
+    """Test get_vector implementation."""
     provider = MockVectorProvider()
-    result = await provider.get_embedding("test")
+    result = await provider.get_vector("test")
     assert len(result) == 768
     assert all(x == 0.1 for x in result)
 
 @pytest.mark.asyncio
-async def test_mock_provider_get_embedding_error():
-    """Test get_embedding error handling."""
+async def test_mock_provider_get_vector_error():
+    """Test get_vector error handling."""
     provider = MockVectorProvider()
     with pytest.raises(VectorGenerationError):
-        await provider.get_embedding("error")
+        await provider.get_vector("error")
 
 @pytest.mark.asyncio
-async def test_mock_provider_get_embeddings():
-    """Test get_embeddings implementation."""
+async def test_mock_provider_get_vectors():
+    """Test get_vectors implementation."""
     provider = MockVectorProvider()
     texts = ["test1", "test2"]
-    result = await provider.get_embeddings(texts)
+    result = await provider.get_vectors(texts)
     assert len(result) == 2
     assert all(len(v) == 768 for v in result)
     assert all(all(x == 0.1 for x in v) for v in result)
 
 @pytest.mark.asyncio
-async def test_mock_provider_get_embeddings_error():
-    """Test get_embeddings error handling."""
+async def test_mock_provider_get_vectors_error():
+    """Test get_vectors error handling."""
     provider = MockVectorProvider()
     with pytest.raises(VectorGenerationError):
-        await provider.get_embeddings(["test", "error"])
+        await provider.get_vectors(["test", "error"])
 
 def test_mock_provider_vector_dimension():
     """Test vector_dimension property."""

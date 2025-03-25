@@ -30,9 +30,9 @@ class SolrConfig(BaseModel):
         gt=0,
         description="Connection timeout in seconds"
     )
-    embedding_field: str = Field(
-        default="embedding",
-        description="Field name for embeddings"
+    vector_field: str = Field(
+        default="vector",
+        description="Default vector field name"
     )
     default_top_k: int = Field(
         default=10,

@@ -17,7 +17,7 @@ def test_config_defaults():
     assert config.zookeeper_hosts == ["test:2181"]
     assert config.default_collection is None
     assert config.connection_timeout == 10
-    assert config.embedding_field == "embedding"
+    assert config.vector_field == "vector"
     assert config.default_top_k == 10
 
 def test_config_custom_values():
@@ -27,14 +27,14 @@ def test_config_custom_values():
         zookeeper_hosts=["custom:2181"],
         default_collection="custom_collection",
         connection_timeout=20,
-        embedding_field="custom_embedding",
+        vector_field="custom_vector",
         default_top_k=20
     )
     assert config.solr_base_url == "http://custom:8983/solr"
     assert config.zookeeper_hosts == ["custom:2181"]
     assert config.default_collection == "custom_collection"
     assert config.connection_timeout == 20
-    assert config.embedding_field == "custom_embedding"
+    assert config.vector_field == "custom_vector"
     assert config.default_top_k == 20
 
 def test_config_validation():
@@ -66,7 +66,7 @@ def test_load_from_file():
         "zookeeper_hosts": ["test:2181"],
         "default_collection": "test_collection",
         "connection_timeout": 20,
-        "embedding_field": "custom_embedding",
+        "vector_field": "custom_vector",
         "default_top_k": 20
     }
 
@@ -76,7 +76,7 @@ def test_load_from_file():
         assert config.zookeeper_hosts == ["test:2181"]
         assert config.default_collection == "test_collection"
         assert config.connection_timeout == 20
-        assert config.embedding_field == "custom_embedding"
+        assert config.vector_field == "custom_vector"
         assert config.default_top_k == 20
 
 def test_load_invalid_json():

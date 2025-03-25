@@ -14,7 +14,7 @@ def mock_field_manager():
         "id": "string",
         "title": "text_general",
         "content": "text_general",
-        "embedding": "knn_vector"
+        "vector": "knn_vector"
     }
     mock.get_field_info.return_value = {
         "sortable_fields": {

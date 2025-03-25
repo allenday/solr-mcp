@@ -54,6 +54,9 @@ async def test_get_or_create_client_no_collection_no_default(mock_config):
 @pytest.mark.asyncio
 async def test_list_collections_success(client, mock_response):
     """Test successful collection listing."""
+    mock_response.json.return_value = {
+        "collections": ["test_collection"]
+    }
     with patch('requests.get', return_value=mock_response):
         result = await client.list_collections()
         assert result == ["test_collection"]

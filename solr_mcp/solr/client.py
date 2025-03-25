@@ -65,7 +65,6 @@ class SolrClient:
         self.vector_manager = VectorManager(
             self,
             self.vector_provider,
-            self.config.embedding_field,
             self.config.default_top_k
         )
 
@@ -212,12 +211,21 @@ class SolrClient:
     async def execute_vector_select_query(
         self,
         query: str,
-        vector: List[float]
+        vector: List[float],
+        field: str
     ) -> Dict[str, Any]:
         """Execute SQL query filtered by vector similarity search."""
         try:
             # Parse and validate query
             ast, collection, _ = self.query_builder.parse_and_validate_select(query)
+            
+            # Validate field exists and is a dense_vector type
+            fields = await self.list_fields(collection)
+            field_info = next((f for f in fields if f['name'] == field), None)
+            if not field_info:
+                raise SolrError(f"Field '{field}' does not exist in collection '{collection}'")
+            if field_info.get('type') != 'dense_vector':
+                raise SolrError(f"Field '{field}' is not a dense_vector field")
             
             # Get limit and offset from query
             limit = 10  # Default limit
@@ -245,6 +253,7 @@ class SolrClient:
             results = await self.vector_manager.execute_vector_search(
                 client=client,
                 vector=vector,
+                field=field,
                 top_k=top_k
             )
             
@@ -323,15 +332,16 @@ class SolrClient:
     async def execute_semantic_select_query(
         self,
         query: str,
-        text: str
+        text: str,
+        field: str
     ) -> Dict[str, Any]:
         """Execute SQL query filtered by semantic similarity."""
         try:
-            # Get vector embedding
-            vector = await self.vector_manager.get_embedding(text)
+            # Get vector
+            vector = await self.vector_manager.get_vector(text)
             
             # Reuse vector query logic
-            return await self.execute_vector_select_query(query, vector)
+            return await self.execute_vector_select_query(query, vector, field)
         except Exception as e:
             if isinstance(e, (QueryError, SolrError)):
                 raise

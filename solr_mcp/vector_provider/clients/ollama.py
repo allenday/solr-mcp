@@ -5,10 +5,11 @@ import requests
 from loguru import logger
 
 from solr_mcp.solr.interfaces import VectorSearchProvider
-from solr_mcp.vector_provider.constants import MODEL_DIMENSIONS
+from solr_mcp.vector_provider.constants import MODEL_DIMENSIONS, OLLAMA_EMBEDDINGS_PATH
+
 
 class OllamaVectorProvider(VectorSearchProvider):
-    """Vector provider that uses Ollama for embeddings."""
+    """Vector provider that uses Ollama to vectorize text."""
 
     def __init__(self, model: str = "nomic-embed-text", base_url: str = "http://localhost:11434", timeout: int = 30, retries: int = 3):
         """Initialize the Ollama vector provider.
@@ -25,19 +26,19 @@ class OllamaVectorProvider(VectorSearchProvider):
         self.retries = retries
         logger.info(f"Initialized Ollama vector provider with model={model} at {base_url} (timeout={timeout}s, retries={retries})")
 
-    async def get_embedding(self, text: str) -> List[float]:
-        """Get embeddings for a single text.
+    async def get_vector(self, text: str) -> List[float]:
+        """Get vector for a single text.
         
         Args:
-            text: Text to get embeddings for
+            text: Text to get vector for
             
         Returns:
-            List of floats representing the text embedding
+            List of floats representing the text vector
             
         Raises:
-            Exception: If there is an error getting embeddings
+            Exception: If there is an error getting vector
         """
-        url = f"{self.base_url}/api/embeddings"
+        url = f"{self.base_url}{OLLAMA_EMBEDDINGS_PATH}"
         data = {
             "model": self.model,
             "prompt": text
@@ -50,26 +51,26 @@ class OllamaVectorProvider(VectorSearchProvider):
                 return response.json()["embedding"]
             except Exception as e:
                 if attempt == self.retries:
-                    raise Exception(f"Failed to get embeddings after {self.retries} retries: {str(e)}")
-                logger.warning(f"Failed to get embeddings (attempt {attempt + 1}/{self.retries + 1}): {str(e)}")
+                    raise Exception(f"Failed to get vector after {self.retries} retries: {str(e)}")
+                logger.warning(f"Failed to get vector (attempt {attempt + 1}/{self.retries + 1}): {str(e)}")
                 continue
 
-    async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for multiple texts.
+    async def get_vectors(self, texts: List[str]) -> List[List[float]]:
+        """Get vector for multiple texts.
         
         Args:
-            texts: List of texts to get embeddings for
+            texts: List of texts to get vector for
             
         Returns:
             List of vectors (list of floats)
             
         Raises:
-            Exception: If there is an error getting embeddings
+            Exception: If there is an error getting vector
         """
         results = []
         for text in texts:
-            embedding = await self.get_embedding(text)
-            results.append(embedding)
+            vector = await self.get_vector(text)
+            results.append(vector)
         return results
 
     async def execute_vector_search(self, client: Any, vector: List[float], top_k: int = 10) -> Dict[str, Any]:

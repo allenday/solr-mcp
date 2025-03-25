@@ -30,7 +30,7 @@ class SolrMCPServer:
         zookeeper_hosts: List[str] = os.getenv("ZOOKEEPER_HOSTS", "localhost:2181").split(","),
         default_collection: str = os.getenv("DEFAULT_COLLECTION", "default"),
         connection_timeout: int = int(os.getenv("CONNECTION_TIMEOUT", 10)),
-        embedding_field: str = os.getenv("EMBEDDING_FIELD", "embedding"),
+        vector_field: str = os.getenv("VECTOR_FIELD", "vector"),
         default_top_k: int = int(os.getenv("DEFAULT_TOP_K", 10)),
         stdio: bool = False,
     ):
@@ -41,7 +41,7 @@ class SolrMCPServer:
             zookeeper_hosts=zookeeper_hosts,
             default_collection=default_collection,
             connection_timeout=connection_timeout,
-            embedding_field=embedding_field,
+            vector_field=vector_field,
             default_top_k=default_top_k
         )
         self.stdio = stdio
@@ -159,8 +159,8 @@ def main() -> None:
                        default=os.getenv("DEFAULT_COLLECTION", "default"))
     parser.add_argument("--connection-timeout", type=int, help="Connection timeout in seconds",
                        default=int(os.getenv("CONNECTION_TIMEOUT", 10)))
-    parser.add_argument("--embedding-field", help="Field name for embeddings",
-                       default=os.getenv("EMBEDDING_FIELD", "embedding"))
+    parser.add_argument("--vector-field", help="Field name for vectors",
+                       default=os.getenv("VECTOR_FIELD", "vector"))
     parser.add_argument("--default-top-k", type=int, help="Default number of results",
                        default=int(os.getenv("DEFAULT_TOP_K", 10)))
     parser.add_argument("--transport", choices=['stdio', 'sse'], default='sse',
@@ -183,7 +183,7 @@ def main() -> None:
         zookeeper_hosts=args.zookeeper_hosts.split(","),
         default_collection=args.default_collection,
         connection_timeout=args.connection_timeout,
-        embedding_field=args.embedding_field,
+        vector_field=args.vector_field,
         default_top_k=args.default_top_k,
         stdio=(args.transport == 'stdio')
     )

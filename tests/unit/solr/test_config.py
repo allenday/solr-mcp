@@ -21,7 +21,7 @@ def valid_config_dict() -> Dict[str, Any]:
         "zookeeper_hosts": ["localhost:2181"],
         "default_collection": "test",
         "connection_timeout": 10,
-        "embedding_field": "embedding",
+        "vector_field": "vector",
         "default_top_k": 10
     }
 
@@ -43,7 +43,7 @@ class TestSolrConfig:
         assert config.zookeeper_hosts == valid_config_dict["zookeeper_hosts"]
         assert config.default_collection == valid_config_dict["default_collection"]
         assert config.connection_timeout == valid_config_dict["connection_timeout"]
-        assert config.embedding_field == valid_config_dict["embedding_field"]
+        assert config.vector_field == valid_config_dict["vector_field"]
         assert config.default_top_k == valid_config_dict["default_top_k"]
 
     def test_init_with_minimal_config(self):
@@ -56,7 +56,7 @@ class TestSolrConfig:
         assert config.zookeeper_hosts == ["localhost:2181"]
         assert config.default_collection is None
         assert config.connection_timeout == 10
-        assert config.embedding_field == "embedding"
+        assert config.vector_field == "vector"
         assert config.default_top_k == 10
 
     def test_init_missing_required_fields(self):

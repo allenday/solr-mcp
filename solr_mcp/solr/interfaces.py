@@ -26,6 +26,7 @@ class VectorSearchProvider(ABC):
         self,
         client: Any,
         vector: List[float],
+        field: str,
         top_k: Optional[int] = None
     ) -> Dict[str, Any]:
         """Execute a vector similarity search.
@@ -33,6 +34,7 @@ class VectorSearchProvider(ABC):
         Args:
             client: Solr client instance
             vector: Dense vector for similarity search
+            field: DenseVector field to search against
             top_k: Number of top results to return
             
         Returns:
@@ -44,16 +46,16 @@ class VectorSearchProvider(ABC):
         pass
     
     @abstractmethod
-    async def get_embedding(self, text: str) -> List[float]:
-        """Get vector embedding for text.
+    async def get_vector(self, text: str) -> List[float]:
+        """Get vector for text.
         
         Args:
             text: Text to convert to vector
             
         Returns:
-            Vector embedding as list of floats
+            Vector as list of floats
             
         Raises:
-            SolrError: If embedding generation fails
+            SolrError: If vector generation fails
         """
         pass 

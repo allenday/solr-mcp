@@ -7,8 +7,8 @@ class VectorProvider(ABC):
     """Interface for generating vectors for semantic search."""
 
     @abstractmethod
-    async def get_embedding(self, text: str) -> List[float]:
-        """Get vector embedding for a single text.
+    async def get_vector(self, text: str) -> List[float]:
+        """Get vector for a single text.
         
         Args:
             text: Text to generate vector for
@@ -23,8 +23,8 @@ class VectorProvider(ABC):
         pass
 
     @abstractmethod
-    async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Get vector embeddings for multiple texts.
+    async def get_vectors(self, texts: List[str]) -> List[List[float]]:
+        """Get vectors for multiple texts.
         
         Args:
             texts: List of texts to generate vectors for
