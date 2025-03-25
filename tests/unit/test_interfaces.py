@@ -9,32 +9,39 @@ from solr_mcp.solr.interfaces import CollectionProvider, VectorSearchProvider
 def test_collection_provider_is_abstract():
     """Test that CollectionProvider is an abstract base class."""
     assert issubclass(CollectionProvider, ABC)
-    assert CollectionProvider.__abstractmethods__ == {"list_collections"}
+    assert CollectionProvider.__abstractmethods__ == {"list_collections", "collection_exists"}
 
 def test_collection_provider_cannot_instantiate():
     """Test that CollectionProvider cannot be instantiated directly."""
     with pytest.raises(TypeError) as exc_info:
         CollectionProvider()
-    assert "Can't instantiate abstract class CollectionProvider with abstract method list_collections" == str(exc_info.value)
+    assert "abstract methods collection_exists, list_collections" in str(exc_info.value)
 
-def test_collection_provider_requires_list_collections():
-    """Test that implementations must provide list_collections method."""
+def test_collection_provider_requires_methods():
+    """Test that implementations must provide required methods."""
     class IncompleteProvider(CollectionProvider):
         pass
 
     with pytest.raises(TypeError) as exc_info:
         IncompleteProvider()
-    assert "Can't instantiate abstract class IncompleteProvider with abstract method list_collections" == str(exc_info.value)
+    assert "abstract methods collection_exists, list_collections" in str(exc_info.value)
 
-def test_collection_provider_implementation():
+@pytest.mark.asyncio
+async def test_collection_provider_implementation():
     """Test that a complete implementation can be instantiated."""
     class ValidProvider(CollectionProvider):
-        def list_collections(self) -> List[str]:
+        async def list_collections(self) -> List[str]:
             return ["collection1"]
+            
+        async def collection_exists(self, collection: str) -> bool:
+            return collection in ["collection1"]
 
     provider = ValidProvider()
     assert isinstance(provider, CollectionProvider)
-    assert provider.list_collections() == ["collection1"]
+    result = await provider.list_collections()
+    assert result == ["collection1"]
+    exists = await provider.collection_exists("collection1")
+    assert exists is True
 
 def test_vector_search_provider_is_abstract():
     """Test that VectorSearchProvider is an abstract base class."""

@@ -17,6 +17,21 @@ class CollectionProvider(ABC):
             ConnectionError: If unable to retrieve collections
         """
         pass
+    
+    @abstractmethod
+    async def collection_exists(self, collection: str) -> bool:
+        """Check if a collection exists.
+        
+        Args:
+            collection: Name of the collection to check
+            
+        Returns:
+            True if the collection exists, False otherwise
+        
+        Raises:
+            ConnectionError: If unable to check collection existence
+        """
+        pass
 
 class VectorSearchProvider(ABC):
     """Interface for vector search operations."""

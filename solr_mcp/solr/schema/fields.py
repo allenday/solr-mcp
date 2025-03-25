@@ -1,10 +1,12 @@
 """Schema and field management for SolrCloud client."""
 
 import logging
+import json
 from typing import Any, Dict, List, Optional
 
 import requests
 from requests.exceptions import HTTPError, RequestException
+import aiohttp
 from loguru import logger
 
 from solr_mcp.solr.constants import FIELD_TYPE_MAPPING, SYNTHETIC_SORT_FIELDS
@@ -25,6 +27,7 @@ class FieldManager:
         self.solr_base_url = solr_base_url.rstrip("/") if isinstance(solr_base_url, str) else solr_base_url.config.solr_base_url.rstrip("/")
         self._schema_cache = {}
         self._field_types_cache = {}
+        self._vector_field_cache = {}
         self.cache = FieldCache()
 
     def get_schema(self, collection: str) -> Dict:
@@ -477,4 +480,185 @@ class FieldManager:
             
         except Exception as e:
             logger.error(f"Error validating collection: {str(e)}")
-            raise SchemaError(f"Error validating collection: {str(e)}") 
+            raise SchemaError(f"Error validating collection: {str(e)}")
+            
+    async def list_fields(self, collection: str) -> List[Dict[str, Any]]:
+        """List all fields in a collection with their properties.
+        
+        Args:
+            collection: Collection name
+            
+        Returns:
+            List of field dictionaries with their properties
+            
+        Raises:
+            SchemaError: If fields cannot be retrieved
+        """
+        try:
+            # Verify collection exists
+            schema = self.get_schema(collection)
+            
+            # Get schema fields and copyFields
+            fields = schema.get('fields', [])
+            copy_fields = schema.get('copyFields', [])
+            
+            # Build map of destination fields to their source fields
+            copies_from = {}
+            for copy_field in copy_fields:
+                dest = copy_field.get('dest')
+                source = copy_field.get('source')
+                if not dest or not source:
+                    continue
+                if dest not in copies_from:
+                    copies_from[dest] = []
+                copies_from[dest].append(source)
+            
+            # Add copyField information to field properties
+            for field in fields:
+                if field.get('name') in copies_from:
+                    field['copies_from'] = copies_from[field['name']]
+            
+            return fields
+            
+        except SchemaError:
+            raise
+        except Exception as e:
+            raise SchemaError(f"Failed to list fields for collection '{collection}': {str(e)}")
+            
+    async def find_vector_field(self, collection: str) -> str:
+        """Find the first vector field in a collection.
+        
+        Args:
+            collection: Collection name
+            
+        Returns:
+            Name of the first vector field found
+            
+        Raises:
+            SchemaError: If no vector fields found
+        """
+        try:
+            fields = await self.list_fields(collection)
+            
+            # Look for vector fields
+            vector_fields = [
+                f for f in fields 
+                if f.get('type') in ['dense_vector', 'knn_vector'] or 
+                f.get('class') == 'solr.DenseVectorField'
+            ]
+            
+            if not vector_fields:
+                raise SchemaError(f"No vector fields found in collection '{collection}'")
+                
+            field = vector_fields[0]['name']
+            logger.info(f"Using auto-detected vector field: {field}")
+            return field
+            
+        except SchemaError:
+            raise
+        except Exception as e:
+            raise SchemaError(f"Failed to find vector field in collection '{collection}': {str(e)}")
+            
+    async def validate_vector_field_dimension(
+        self, 
+        collection: str, 
+        field: str, 
+        vector_provider_model: Optional[str] = None,
+        model_dimensions: Optional[Dict[str, int]] = None
+    ) -> Dict[str, Any]:
+        """Validate that the vector field exists and its dimension matches the vectorizer.
+        
+        Args:
+            collection: Collection name
+            field: Field name to validate
+            vector_provider_model: Optional vectorizer model name
+            model_dimensions: Dictionary mapping model names to dimensions
+            
+        Returns:
+            Field information dictionary
+            
+        Raises:
+            SchemaError: If validation fails
+        """
+        # Check cache first
+        cache_key = f"{collection}:{field}"
+        if cache_key in self._vector_field_cache:
+            field_info = self._vector_field_cache[cache_key]
+            logger.debug(f"Using cached field info for {cache_key}")
+            return field_info
+            
+        try:
+            # Get collection fields
+            fields = await self.list_fields(collection)
+            
+            # Find the specified field
+            field_info = next((f for f in fields if f.get('name') == field), None)
+            if not field_info:
+                raise SchemaError(f"Field '{field}' does not exist in collection '{collection}'")
+                
+            # Check if field is a vector type (supporting both dense_vector and knn_vector)
+            field_type = field_info.get('type')
+            field_class = field_info.get('class')
+            if field_type not in ['dense_vector', 'knn_vector'] and field_class != 'solr.DenseVectorField':
+                raise SchemaError(f"Field '{field}' is not a vector field (type: {field_type}, class: {field_class})")
+            
+            # Get field dimension
+            vector_dimension = None
+            
+            # First check if dimension is directly in field info
+            if 'vectorDimension' in field_info:
+                vector_dimension = field_info['vectorDimension']
+            else:
+                # Look up the field type definition
+                field_type_name = field_info.get('type')
+                
+                # Get all field types
+                schema_url = f"{self.solr_base_url}/{collection}/schema"
+                try:
+                    schema_response = requests.get(schema_url)
+                    schema_data = schema_response.json()
+                    field_types = schema_data.get('schema', {}).get('fieldTypes', [])
+                    
+                    # Find matching field type
+                    matching_type = next((ft for ft in field_types if ft.get('name') == field_type_name), None)
+                    
+                    if matching_type and 'vectorDimension' in matching_type:
+                        vector_dimension = matching_type['vectorDimension']
+                    elif matching_type and matching_type.get('class') == 'solr.DenseVectorField':
+                        # For solr.DenseVectorField, dimension should be specified in the field type
+                        vector_dimension = matching_type.get('vectorDimension')
+                except Exception as e:
+                    logger.warning(f"Error fetching schema to determine vector dimension: {str(e)}")
+            
+            # If still not found, attempt to get from fields
+            if not vector_dimension:
+                # Look for field types in the fields list that match this type
+                field_types = [f for f in fields if f.get('class') == 'solr.DenseVectorField' or 
+                              (f.get('name') == field_type and 'vectorDimension' in f)]
+                if field_types and 'vectorDimension' in field_types[0]:
+                    vector_dimension = field_types[0]['vectorDimension']
+            
+            # No need to use hardcoded defaults - this should be explicitly defined in the schema
+            
+            if not vector_dimension:
+                raise SchemaError(f"Could not determine vector dimension for field '{field}' (type: {field_type})")
+            
+            # If vector provider model and dimensions are provided, check compatibility
+            if vector_provider_model and model_dimensions:
+                model_dimension = model_dimensions.get(vector_provider_model)
+                if model_dimension:
+                    # Validate dimensions match
+                    if int(vector_dimension) != model_dimension:
+                        raise SchemaError(
+                            f"Vector dimension mismatch: field '{field}' has dimension {vector_dimension}, "
+                            f"but model '{vector_provider_model}' produces vectors with dimension {model_dimension}"
+                        )
+            
+            # Cache the result
+            self._vector_field_cache[cache_key] = field_info
+            return field_info
+            
+        except SchemaError:
+            raise
+        except Exception as e:
+            raise SchemaError(f"Error validating vector field dimension: {str(e)}")

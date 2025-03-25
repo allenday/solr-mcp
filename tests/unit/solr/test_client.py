@@ -52,85 +52,83 @@ async def test_get_or_create_client_no_collection(mock_config):
 @pytest.mark.asyncio
 async def test_list_collections_success(client):
     """Test successful collection listing."""
-    # Create a mock response for the request
-    mock_resp = Mock(spec=requests.Response)
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "collections": ["test_collection"]
-    }
+    # Mock the collection provider's list_collections method
+    expected_collections = ["test_collection"]
+    client.collection_provider.list_collections = AsyncMock(return_value=expected_collections)
     
-    # Use the mock in the test
-    with patch('requests.get', return_value=mock_resp):
-        result = await client.list_collections()
-        assert result == ["test_collection"]
+    # Test the method
+    result = await client.list_collections()
+    assert result == expected_collections
+    
+    # Verify the collection provider was called
+    client.collection_provider.list_collections.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_list_fields_schema_error(client):
     """Test schema error handling in list_fields."""
-    # Create a successful response for the first call
-    mock_resp = Mock(spec=requests.Response)
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "collections": ["test_collection"]
-    }
+    # Mock field_manager.list_fields to raise an error
+    client.field_manager.list_fields = AsyncMock(side_effect=SolrError("Schema error"))
     
-    # Create an error response for the second call
-    mock_error = Mock(spec=requests.Response)
-    mock_error.status_code = 500
-    mock_error.text = "Schema error"
-    
-    with patch('requests.get', side_effect=[mock_resp, mock_error]):
-        with pytest.raises(SolrError):
-            await client.list_fields("test_collection")
+    # Test that the error is propagated
+    with pytest.raises(SolrError):
+        await client.list_fields("test_collection")
 
 @pytest.mark.asyncio
 async def test_execute_select_query_success(client):
     """Test successful SQL query execution."""
-    mock_response = Mock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
+    # Mock parser.preprocess_query
+    client.query_builder.parser.preprocess_query = Mock(return_value="SELECT * FROM test_collection")
+    
+    # Mock the parse_and_validate_select
+    client.query_builder.parse_and_validate_select = Mock(return_value=(Mock(), "test_collection", None))
+    
+    # Mock the query executor
+    expected_result = {
         "result-set": {
             "docs": [{"id": "1", "title": "Test"}],
             "numFound": 1
         }
     }
-
-    with patch('requests.post', return_value=mock_response):
-        result = await client.execute_select_query("SELECT * FROM test_collection")
-        assert result["result-set"]["docs"][0]["id"] == "1"
+    client.query_executor.execute_select_query = AsyncMock(return_value=expected_result)
+    
+    # Execute the query
+    result = await client.execute_select_query("SELECT * FROM test_collection")
+    
+    # Verify the result
+    assert result == expected_result
+    client.query_executor.execute_select_query.assert_called_once_with(
+        query="SELECT * FROM test_collection",
+        collection="test_collection"
+    )
 
 @pytest.mark.asyncio
 async def test_execute_select_query_docvalues_error(client):
     """Test SQL query with DocValues error."""
-    error_response = Mock()
-    error_response.status_code = 200
-    error_response.json.return_value = {
-        "result-set": {
-            "docs": [{
-                "EXCEPTION": "must have DocValues to use this feature",
-                "RESPONSE_TIME": 10
-            }]
-        }
-    }
-
-    with patch('requests.post', return_value=error_response):
-        with pytest.raises(DocValuesError):
-            await client.execute_select_query("SELECT * FROM test_collection")
+    # Mock parser.preprocess_query
+    client.query_builder.parser.preprocess_query = Mock(return_value="SELECT * FROM test_collection")
+    
+    # Mock the parse_and_validate_select
+    client.query_builder.parse_and_validate_select = Mock(return_value=(Mock(), "test_collection", None))
+    
+    # Mock the query executor to raise a DocValuesError
+    client.query_executor.execute_select_query = AsyncMock(side_effect=DocValuesError("must have DocValues to use this feature", 10))
+    
+    # Execute the query and verify the error
+    with pytest.raises(DocValuesError):
+        await client.execute_select_query("SELECT * FROM test_collection")
 
 @pytest.mark.asyncio
 async def test_execute_select_query_parse_error(client):
     """Test SQL query with parse error."""
-    error_response = Mock()
-    error_response.status_code = 200
-    error_response.json.return_value = {
-        "result-set": {
-            "docs": [{
-                "EXCEPTION": "parse failed: syntax error",
-                "RESPONSE_TIME": 10
-            }]
-        }
-    }
-
-    with patch('requests.post', return_value=error_response):
-        with pytest.raises(SQLParseError):
-            await client.execute_select_query("INVALID SQL")
+    # Mock parser.preprocess_query
+    client.query_builder.parser.preprocess_query = Mock(return_value="INVALID SQL")
+    
+    # Mock the parse_and_validate_select
+    client.query_builder.parse_and_validate_select = Mock(return_value=(Mock(), "test_collection", None))
+    
+    # Mock the query executor to raise a SQLParseError
+    client.query_executor.execute_select_query = AsyncMock(side_effect=SQLParseError("parse failed: syntax error", 10))
+    
+    # Execute the query and verify the error
+    with pytest.raises(SQLParseError):
+        await client.execute_select_query("INVALID SQL")

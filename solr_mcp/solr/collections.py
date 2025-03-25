@@ -1,12 +1,66 @@
-"""ZooKeeper-based collection provider."""
+"""Collection providers for SolrCloud."""
 
-from typing import List
+import logging
+from typing import List, Optional
+
+import requests
 import anyio
 from kazoo.client import KazooClient
 from kazoo.exceptions import NoNodeError, ConnectionLoss
 
 from solr_mcp.solr.interfaces import CollectionProvider
-from solr_mcp.solr.exceptions import ConnectionError
+from solr_mcp.solr.exceptions import ConnectionError, SolrError
+
+logger = logging.getLogger(__name__)
+
+class HttpCollectionProvider(CollectionProvider):
+    """Collection provider that uses Solr HTTP API to discover collections."""
+    
+    def __init__(self, base_url: str):
+        """Initialize with Solr base URL.
+        
+        Args:
+            base_url: Base URL for Solr instance (e.g., http://localhost:8983/solr)
+        """
+        self.base_url = base_url.rstrip('/')
+    
+    async def list_collections(self) -> List[str]:
+        """List all available collections using Solr HTTP API.
+        
+        Returns:
+            List of collection names
+            
+        Raises:
+            SolrError: If unable to retrieve collections
+        """
+        try:
+            response = requests.get(f"{self.base_url}/admin/collections?action=LIST")
+            if response.status_code != 200:
+                raise SolrError(f"Failed to list collections: {response.text}")
+            
+            collections = response.json().get('collections', [])
+            return collections
+            
+        except Exception as e:
+            raise SolrError(f"Failed to list collections: {str(e)}")
+    
+    async def collection_exists(self, collection: str) -> bool:
+        """Check if a collection exists.
+        
+        Args:
+            collection: Name of the collection to check
+            
+        Returns:
+            True if the collection exists, False otherwise
+            
+        Raises:
+            SolrError: If unable to check collection existence
+        """
+        try:
+            collections = await self.list_collections()
+            return collection in collections
+        except Exception as e:
+            raise SolrError(f"Failed to check if collection exists: {str(e)}")
 
 class ZooKeeperCollectionProvider(CollectionProvider):
     """Collection provider that uses ZooKeeper to discover collections."""
@@ -78,7 +132,7 @@ class ZooKeeperCollectionProvider(CollectionProvider):
             
         Returns:
             True if the collection exists, False otherwise
-        
+            
         Raises:
             ConnectionError: If there is an error communicating with ZooKeeper
         """
@@ -94,4 +148,4 @@ class ZooKeeperCollectionProvider(CollectionProvider):
         except ConnectionLoss as e:
             raise ConnectionError(f"Lost connection to ZooKeeper: {str(e)}")
         except Exception as e:
-            raise ConnectionError(f"Error checking collection existence: {str(e)}") 
+            raise ConnectionError(f"Error checking collection existence: {str(e)}")

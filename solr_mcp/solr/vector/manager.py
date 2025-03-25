@@ -1,14 +1,15 @@
 """Vector search functionality for SolrCloud client."""
 
 import logging
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
 
 from loguru import logger
 import numpy as np
 import pysolr
 
 from solr_mcp.vector_provider import OllamaVectorProvider
-from ..exceptions import SolrError
+from solr_mcp.vector_provider.constants import MODEL_DIMENSIONS
+from ..exceptions import SolrError, SchemaError
 from solr_mcp.solr.interfaces import VectorSearchProvider
 
 if TYPE_CHECKING:
@@ -113,6 +114,62 @@ class VectorManager(VectorSearchProvider):
             knn_template = "{{!knn f={field}}}{vector}"
             return knn_template.format(field=field, vector=vector_str)
         
+    async def find_vector_field(self, collection: str) -> str:
+        """Find a suitable vector field for a collection.
+        
+        Args:
+            collection: Collection name
+            
+        Returns:
+            Name of the vector field
+            
+        Raises:
+            SolrError: If no vector field is found
+        """
+        try:
+            field = await self.solr_client.field_manager.find_vector_field(collection)
+            return field
+        except Exception as e:
+            raise SolrError(f"Failed to find vector field: {str(e)}")
+            
+    async def validate_vector_field(
+        self, 
+        collection: str, 
+        field: Optional[str], 
+        vector_provider_model: Optional[str] = None
+    ) -> Tuple[str, Dict[str, Any]]:
+        """Validate vector field and auto-detect if not provided.
+        
+        Args:
+            collection: Collection name
+            field: Optional field name, will auto-detect if None
+            vector_provider_model: Optional model name
+            
+        Returns:
+            Tuple of (field name, field info)
+            
+        Raises:
+            SolrError: If field validation fails
+        """
+        try:
+            # Auto-detect field if not provided
+            if field is None:
+                field = await self.find_vector_field(collection)
+                
+            # Validate field
+            field_info = await self.solr_client.field_manager.validate_vector_field_dimension(
+                collection=collection,
+                field=field,
+                vector_provider_model=vector_provider_model,
+                model_dimensions=MODEL_DIMENSIONS
+            )
+            
+            return field, field_info
+        except Exception as e:
+            if isinstance(e, SchemaError):
+                raise SolrError(str(e))
+            raise SolrError(f"Failed to validate vector field: {str(e)}")
+    
     async def execute_vector_search(
         self,
         client: pysolr.Solr,

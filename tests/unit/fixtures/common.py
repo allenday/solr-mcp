@@ -102,9 +102,13 @@ class MockCollectionProvider(CollectionProvider):
         """Initialize with optional list of collections."""
         self.collections = collections if collections is not None else MOCK_RESPONSES["collections"]
         
-    def list_collections(self) -> List[str]:
+    async def list_collections(self) -> List[str]:
         """Return mock list of collections."""
         return self.collections
+        
+    async def collection_exists(self, collection: str) -> bool:
+        """Check if collection exists in mock list."""
+        return collection in self.collections
 
 
 class MockVectorProvider(VectorSearchProvider):
