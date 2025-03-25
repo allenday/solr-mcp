@@ -20,6 +20,7 @@ from solr_mcp.solr.utils.formatting import format_search_results, format_sql_res
 from solr_mcp.solr.vector import VectorManager, VectorSearchResults
 from solr_mcp.solr.interfaces import CollectionProvider, VectorSearchProvider
 from solr_mcp.solr.zookeeper import ZooKeeperCollectionProvider
+from solr_mcp.vector_provider import OllamaVectorProvider
 
 logger = logging.getLogger(__name__)
 
@@ -48,30 +49,54 @@ class SolrClient:
         
         # Initialize collection provider
         self.collection_provider = collection_provider or ZooKeeperCollectionProvider(
-            hosts=self.config.zookeeper_hosts,
-            default_collection=self.config.default_collection
+            hosts=self.config.zookeeper_hosts
         )
 
-        # Initialize or use provided Solr client
-        self.solr = solr_client or self._get_or_create_client(self.config.default_collection)
-        
-        # Initialize or use provided managers
+        # Initialize field manager
         self.field_manager = field_manager or FieldManager(self.base_url)
-        self.vector_provider = vector_provider or VectorManager(self.solr)
+
+        # Initialize vector provider
+        self.vector_provider = vector_provider or OllamaVectorProvider()
+
+        # Initialize query builder
         self.query_builder = query_builder or QueryBuilder(field_manager=self.field_manager)
 
-    async def _get_or_create_client(self, collection: str) -> pysolr.Solr:
-        """Get or create a Solr client for the specified collection.
+        # Initialize vector manager
+        self.vector_manager = VectorManager(
+            self,
+            self.vector_provider,
+            self.config.embedding_field,
+            self.config.default_top_k
+        )
+
+        # Initialize Solr client
+        self._solr_client = solr_client
+        self._default_collection = self.config.default_collection
+
+    async def _get_or_create_client(self, collection: Optional[str] = None) -> pysolr.Solr:
+        """Get or create a Solr client for the given collection.
         
         Args:
-            collection: Collection name
+            collection: Optional collection name to use. If not provided, uses default collection.
             
         Returns:
-            Configured Solr client for the collection
+            Configured Solr client
+            
+        Raises:
+            SolrError: If no collection is specified and no default collection is configured
         """
-        # In the future we might want to maintain a client pool/cache
-        # For now, just create a new client each time
-        return pysolr.Solr(f"{self.base_url}/{collection}")
+        if not collection:
+            if not self._default_collection:
+                raise SolrError("No collection specified and no default collection configured")
+            collection = self._default_collection
+
+        if not self._solr_client:
+            self._solr_client = pysolr.Solr(
+                f"{self.base_url}/{collection}",
+                timeout=self.config.connection_timeout
+            )
+
+        return self._solr_client
     
     async def list_collections(self) -> List[str]:
         """List all available collections."""
@@ -217,7 +242,7 @@ class SolrClient:
             
             # Execute vector search
             client = await self._get_or_create_client(collection)
-            results = await self.vector_provider.execute_vector_search(
+            results = await self.vector_manager.execute_vector_search(
                 client=client,
                 vector=vector,
                 top_k=top_k
@@ -303,7 +328,7 @@ class SolrClient:
         """Execute SQL query filtered by semantic similarity."""
         try:
             # Get vector embedding
-            vector = await self.vector_provider.get_embedding(text)
+            vector = await self.vector_manager.get_embedding(text)
             
             # Reuse vector query logic
             return await self.execute_vector_select_query(query, vector)

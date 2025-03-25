@@ -1,5 +1,5 @@
-"""Embedding provider client implementations."""
+"""Vector provider client implementations."""
 
-from .ollama import OllamaClient
+from .ollama import OllamaVectorProvider
 
-__all__ = ["OllamaClient"] 
+__all__ = ["OllamaVectorProvider"] 

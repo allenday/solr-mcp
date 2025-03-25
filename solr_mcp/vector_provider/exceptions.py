@@ -1,17 +1,17 @@
-"""Exceptions for embeddings module."""
+"""Exceptions for vector provider module."""
 
-class EmbeddingError(Exception):
-    """Base exception for embedding-related errors."""
+class VectorError(Exception):
+    """Base exception for vector-related errors."""
     pass
 
-class EmbeddingGenerationError(EmbeddingError):
-    """Raised when embedding generation fails."""
+class VectorGenerationError(VectorError):
+    """Raised when vector generation fails."""
     pass
 
-class EmbeddingConfigError(EmbeddingError):
-    """Raised when there is an error in embedding configuration."""
+class VectorConfigError(VectorError):
+    """Raised when there is an error in vector provider configuration."""
     pass
 
-class EmbeddingConnectionError(EmbeddingError):
-    """Raised when connection to embedding service fails."""
+class VectorConnectionError(VectorError):
+    """Raised when connection to vector service fails."""
     pass 

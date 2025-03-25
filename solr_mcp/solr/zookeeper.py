@@ -1,81 +1,71 @@
-"""ZooKeeper collection provider for Solr."""
+"""ZooKeeper-based collection provider."""
 
-import logging
-from typing import List, Optional, Union
-
+from typing import List
 import anyio
 from kazoo.client import KazooClient
-from kazoo.exceptions import NoNodeError, ConnectionLoss, KazooException
-from loguru import logger
+from kazoo.exceptions import NoNodeError, ConnectionLoss
 
-from solr_mcp.solr.exceptions import ConnectionError
 from solr_mcp.solr.interfaces import CollectionProvider
-
-logger = logging.getLogger(__name__)
+from solr_mcp.solr.exceptions import ConnectionError
 
 class ZooKeeperCollectionProvider(CollectionProvider):
     """Collection provider that uses ZooKeeper to discover collections."""
 
-    def __init__(self, hosts: Union[str, List[str]], default_collection: str | None = None):
-        """Initialize provider.
-
+    def __init__(self, hosts: List[str]):
+        """Initialize with ZooKeeper hosts.
+        
         Args:
-            hosts: Comma-separated list of ZooKeeper hosts or list of hosts
-            default_collection: Default collection name
+            hosts: List of ZooKeeper hosts in format host:port
         """
-        super().__init__()
-        if isinstance(hosts, str):
-            self.hosts = [h.strip() for h in hosts.split(',')]
-        else:
-            self.hosts = hosts
-        self.default_collection = default_collection
+        self.hosts = hosts
         self.zk = None
-        self._connected = False
+        self.connect()
 
     def connect(self):
-        """Connect to ZooKeeper and verify collections path exists."""
+        """Connect to ZooKeeper and verify /collections path exists."""
         try:
-            if not self.zk:
-                self.zk = KazooClient(hosts=",".join(self.hosts))
-            
+            self.zk = KazooClient(hosts=",".join(self.hosts))
             self.zk.start()
+            
+            # Check if /collections path exists
             if not self.zk.exists("/collections"):
-                raise ConnectionError("Collections path does not exist")
-            self._connected = True
+                raise ConnectionError("ZooKeeper /collections path does not exist")
+                
         except ConnectionLoss as e:
-            raise ConnectionError(f"Failed to connect to ZooKeeper: {e}")
-
-    async def list_collections(self) -> List[str]:
-        """List available collections.
-
-        Returns:
-            List of collection names
-
-        Raises:
-            ConnectionError: If unable to list collections
-        """
-        try:
-            if not self._connected:
-                await anyio.to_thread.run_sync(self.connect)
-
-            if not self.zk:
-                raise ConnectionError("Not connected to ZooKeeper")
-
-            return await anyio.to_thread.run_sync(self.zk.get_children, "/collections")
-        except NoNodeError:
-            return []
-        except ConnectionLoss as e:
-            raise ConnectionError(f"Failed to list collections: {e}")
-
-    def close(self):
-        """Close connection."""
-        self.cleanup()
+            raise ConnectionError(f"Failed to connect to ZooKeeper: {str(e)}")
+        except Exception as e:
+            raise ConnectionError(f"Error connecting to ZooKeeper: {str(e)}")
 
     def cleanup(self):
         """Clean up ZooKeeper connection."""
         if self.zk:
-            zk = self.zk  # Keep reference for assertions
-            self.zk = None
-            self._connected = False
-            zk.stop()
-            zk.close() 
+            try:
+                self.zk.stop()
+                self.zk.close()
+            except Exception:
+                pass  # Ignore cleanup errors
+            finally:
+                self.zk = None
+
+    async def list_collections(self) -> List[str]:
+        """List available collections from ZooKeeper.
+        
+        Returns:
+            List of collection names
+            
+        Raises:
+            ConnectionError: If there is an error communicating with ZooKeeper
+        """
+        try:
+            if not self.zk:
+                raise ConnectionError("Not connected to ZooKeeper")
+                
+            collections = await anyio.to_thread.run_sync(self.zk.get_children, "/collections")
+            return collections
+            
+        except NoNodeError:
+            return []  # No collections exist yet
+        except ConnectionLoss as e:
+            raise ConnectionError(f"Lost connection to ZooKeeper: {str(e)}")
+        except Exception as e:
+            raise ConnectionError(f"Error listing collections: {str(e)}") 

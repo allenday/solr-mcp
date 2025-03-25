@@ -1,40 +1,40 @@
-"""Interfaces for embedding providers."""
+"""Interfaces for vector providers."""
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 
-class EmbeddingProvider(ABC):
-    """Interface for generating embeddings."""
+class VectorProvider(ABC):
+    """Interface for generating vectors for semantic search."""
 
     @abstractmethod
     async def get_embedding(self, text: str) -> List[float]:
-        """Get embedding for a single text.
+        """Get vector embedding for a single text.
         
         Args:
-            text: Text to generate embedding for
+            text: Text to generate vector for
             
         Returns:
-            List of floats representing the embedding vector
+            List of floats representing the vector
             
         Raises:
-            EmbeddingGenerationError: If embedding generation fails
-            EmbeddingConnectionError: If connection to service fails
+            VectorGenerationError: If vector generation fails
+            VectorConnectionError: If connection to service fails
         """
         pass
 
     @abstractmethod
     async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for multiple texts.
+        """Get vector embeddings for multiple texts.
         
         Args:
-            texts: List of texts to generate embeddings for
+            texts: List of texts to generate vectors for
             
         Returns:
-            List of embedding vectors (list of floats)
+            List of vectors (list of floats)
             
         Raises:
-            EmbeddingGenerationError: If embedding generation fails
-            EmbeddingConnectionError: If connection to service fails
+            VectorGenerationError: If vector generation fails
+            VectorConnectionError: If connection to service fails
         """
         pass
 
@@ -44,10 +44,10 @@ class EmbeddingProvider(ABC):
         """Get the dimension of vectors produced by this provider.
         
         Returns:
-            Integer dimension of the embedding vectors
+            Integer dimension of the vectors
             
         Raises:
-            EmbeddingConfigError: If unable to determine vector dimension
+            VectorConfigError: If unable to determine vector dimension
         """
         pass
 

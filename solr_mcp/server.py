@@ -3,8 +3,9 @@
 import os
 import logging
 import functools
-from typing import Dict, Any, List
+from typing import List
 import argparse
+import sys
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -15,14 +16,7 @@ from mcp.server.sse import SseServerTransport
 
 from solr_mcp.solr.client import SolrClient
 from solr_mcp.solr.config import SolrConfig
-from solr_mcp.tools import (
-    execute_list_collections,
-    execute_list_fields,
-    execute_select_query,
-    execute_semantic_select_query,
-    execute_vector_select_query,
-    TOOLS_DEFINITION
-)
+from solr_mcp.tools import TOOLS_DEFINITION
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Script for indexing documents with both text and vector embeddings in a unified Solr collection.
+Script for indexing documents with text content in a unified Solr collection.
+Note: Vector embedding generation has been removed for simplicity.
 """
 
 import argparse
@@ -10,35 +11,42 @@ import os
 import sys
 import time
 import httpx
+import numpy as np
 from typing import Dict, List, Any
 
 # Add the project root to the path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from solr_mcp.embeddings.client import OllamaClient
+# OllamaClient is no longer used - we'll use mock vectors instead
 
 
 async def generate_embeddings(texts: List[str]) -> List[List[float]]:
-    """Generate embeddings for a list of texts using Ollama.
+    """Generate mock embeddings for a list of texts.
     
     Args:
         texts: List of text strings to generate embeddings for
         
     Returns:
-        List of embedding vectors
+        List of dummy embedding vectors
     """
-    client = OllamaClient()
+    # Use numpy to generate consistent random vectors
+    # Use a fixed seed for reproducibility
+    np.random.seed(42)
+    
+    # Generate 768-dimensional vectors (same as nomic-embed-text)
     embeddings = []
     
-    print(f"Generating embeddings for {len(texts)} documents...")
+    print(f"Generating mock embeddings for {len(texts)} documents...")
     
-    # Process in smaller batches to avoid overwhelming Ollama
-    batch_size = 5
-    for i in range(0, len(texts), batch_size):
-        batch = texts[i:i+batch_size]
-        print(f"Processing batch {i//batch_size + 1}/{(len(texts) + batch_size - 1)//batch_size}...")
-        batch_embeddings = await client.get_embeddings(batch)
-        embeddings.extend(batch_embeddings)
+    for i, text in enumerate(texts):
+        # Generate a random vector, then normalize it
+        vector = np.random.randn(768)
+        # Normalize to unit length (as typical for embeddings)
+        vector = vector / np.linalg.norm(vector)
+        # Convert to regular list for JSON serialization
+        embeddings.append(vector.tolist())
+        if (i + 1) % 5 == 0:
+            print(f"Generated {i + 1}/{len(texts)} mock embeddings...")
     
     return embeddings
 

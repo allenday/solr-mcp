@@ -1,32 +1,41 @@
 """Vector search functionality for SolrCloud client."""
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
 
 from loguru import logger
 import numpy as np
 import pysolr
 
-from solr_mcp.embeddings import OllamaClient
-from solr_mcp.solr.exceptions import SolrError
+from solr_mcp.vector_provider import OllamaVectorProvider
+from ..exceptions import SolrError
 from solr_mcp.solr.interfaces import VectorSearchProvider
+
+if TYPE_CHECKING:
+    from ..client import SolrClient
 
 logger = logging.getLogger(__name__)
 
 class VectorManager(VectorSearchProvider):
     """Vector search provider implementation."""
 
-    def __init__(self, solr, client=None):
+    def __init__(self, 
+                 solr_client: 'SolrClient', 
+                 client: Optional[OllamaVectorProvider] = None,
+                 embedding_field: str = "embedding",
+                 default_top_k: int = 10):
         """Initialize VectorManager.
         
         Args:
-            solr: Solr client instance
-            client: Optional client for vector operations (e.g. Ollama)
+            solr_client: SolrClient instance
+            client: Optional vector provider client (defaults to OllamaVectorProvider)
+            embedding_field: Field name for vector embeddings
+            default_top_k: Default number of results to return
         """
-        self.solr = solr
-        self.client = client or OllamaClient()
-        self.embedding_field = "embedding"
-        self.default_top_k = 10
+        self.solr_client = solr_client
+        self.client = client or OllamaVectorProvider()
+        self.embedding_field = embedding_field
+        self.default_top_k = default_top_k
         
     async def get_embedding(self, text: str) -> List[float]:
         """Get vector embedding for text.

@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 import requests
+from requests.exceptions import HTTPError, RequestException
 from loguru import logger
 
 from solr_mcp.solr.constants import FIELD_TYPE_MAPPING, SYNTHETIC_SORT_FIELDS
@@ -21,7 +22,7 @@ class FieldManager:
         Args:
             solr_base_url: Base URL for Solr instance
         """
-        self.solr_base_url = solr_base_url
+        self.solr_base_url = solr_base_url.rstrip("/") if isinstance(solr_base_url, str) else solr_base_url.config.solr_base_url.rstrip("/")
         self._schema_cache = {}
         self._field_types_cache = {}
         self.cache = FieldCache()
@@ -42,20 +43,26 @@ class FieldManager:
             return self._schema_cache[collection]
             
         try:
+            # Try schema API first
             url = f"{self.solr_base_url}/{collection}/schema"
             response = requests.get(url)
             response.raise_for_status()
-            
             schema = response.json()
+            
             if "schema" not in schema:
-                raise SchemaError(f"Invalid schema response for collection {collection}")
+                raise SchemaError("Invalid schema response")
                 
             self._schema_cache[collection] = schema["schema"]
-            return self._schema_cache[collection]
+            return schema["schema"]
+            
+        except HTTPError as e:
+            if getattr(e.response, 'status_code', None) == 404:
+                raise SchemaError(f"Collection not found: {collection}")
+            raise SchemaError(f"Failed to get schema: {str(e)}")
             
         except Exception as e:
-            logger.error(f"Failed to get schema for collection {collection}: {str(e)}")
-            raise SchemaError(f"Failed to get schema for collection {collection}: {str(e)}")
+            logger.error(f"Error getting schema: {str(e)}")
+            raise SchemaError(f"Failed to get schema: {str(e)}")
 
     def get_field_types(self, collection: str) -> Dict[str, str]:
         """Get field types for a collection."""
@@ -84,12 +91,12 @@ class FieldManager:
             raise SchemaError(f"Field not found: {field_name}")
         return field_types[field_name]
 
-    def validate_field_exists(self, collection: str, field: str) -> bool:
+    def validate_field_exists(self, field: str, collection: str) -> bool:
         """Validate that a field exists in a collection.
         
         Args:
-            collection: Collection name
             field: Field name to validate
+            collection: Collection name
             
         Returns:
             True if field exists
@@ -98,39 +105,44 @@ class FieldManager:
             SchemaError: If field does not exist
         """
         try:
-            field_info = self.get_field_info(collection)
+            # Handle wildcard field
             if field == "*":
                 return True
                 
+            field_info = self.get_field_info(collection)
             if field not in field_info["searchable_fields"]:
                 raise SchemaError(f"Field {field} not found in collection {collection}")
                 
             return True
             
+        except SchemaError:
+            raise
         except Exception as e:
             logger.error(f"Error validating field {field}: {str(e)}")
             raise SchemaError(f"Error validating field {field}: {str(e)}")
-            
-    def validate_sort_field(self, collection: str, field: str) -> bool:
+
+    def validate_sort_field(self, field: str, collection: str) -> bool:
         """Validate that a field can be used for sorting.
         
         Args:
-            collection: Collection name
             field: Field name to validate
+            collection: Collection name
             
         Returns:
-            True if field can be used for sorting
+            True if field is sortable
             
         Raises:
-            SchemaError: If field cannot be used for sorting
+            SchemaError: If field is not sortable
         """
         try:
             field_info = self.get_field_info(collection)
             if field not in field_info["sortable_fields"]:
-                raise SchemaError(f"Field {field} cannot be used for sorting in collection {collection}")
+                raise SchemaError(f"Field {field} is not sortable in collection {collection}")
                 
             return True
             
+        except SchemaError:
+            raise
         except Exception as e:
             logger.error(f"Error validating sort field {field}: {str(e)}")
             raise SchemaError(f"Error validating sort field {field}: {str(e)}")
@@ -202,6 +214,8 @@ class FieldManager:
                 
             return field_info
             
+        except SchemaError:
+            raise
         except Exception as e:
             logger.error(f"Error getting field info: {str(e)}")
             raise SchemaError(f"Failed to get field info: {str(e)}")
@@ -443,7 +457,7 @@ class FieldManager:
         """Validate that a collection exists.
         
         Args:
-            collection: Collection name to validate
+            collection: Collection name
             
         Returns:
             True if collection exists
@@ -454,47 +468,13 @@ class FieldManager:
         try:
             self.get_schema(collection)
             return True
-        except SchemaError:
-            raise SchemaError(f"Collection {collection} does not exist")
             
-    def validate_field_exists(self, field: str, collection: str) -> bool:
-        """Validate that a field exists in a collection.
-        
-        Args:
-            field: Field name to validate
-            collection: Collection name
+        except SchemaError as e:
+            if "Collection not found" in str(e):
+                raise
+            logger.error(f"Error validating collection: {str(e)}")
+            raise SchemaError(f"Error validating collection: {str(e)}")
             
-        Returns:
-            True if field exists
-            
-        Raises:
-            SchemaError: If field does not exist
-        """
-        try:
-            field_info = self.get_field_info(collection)
-            if field not in field_info["searchable_fields"]:
-                raise SchemaError(f"Field {field} not found in collection {collection}")
-            return True
-        except SchemaError:
-            raise
-            
-    def validate_sort_field(self, field: str, collection: str) -> bool:
-        """Validate that a field can be used for sorting.
-        
-        Args:
-            field: Field name to validate
-            collection: Collection name
-            
-        Returns:
-            True if field is sortable
-            
-        Raises:
-            SchemaError: If field is not sortable
-        """
-        try:
-            field_info = self.get_field_info(collection)
-            if field not in field_info["sortable_fields"]:
-                raise SchemaError(f"Field {field} is not sortable in collection {collection}")
-            return True
-        except SchemaError:
-            raise 
+        except Exception as e:
+            logger.error(f"Error validating collection: {str(e)}")
+            raise SchemaError(f"Error validating collection: {str(e)}") 
