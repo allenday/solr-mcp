@@ -31,40 +31,55 @@ async def test_init_with_custom_providers(client, mock_config, mock_collection_p
     assert client.query_builder == mock_query_builder
 
 @pytest.mark.asyncio
-async def test_get_or_create_client_with_default_collection(client, mock_config):
-    """Test getting Solr client with default collection."""
-    mock_config.default_collection = "default_collection"
-    solr_client = await client._get_or_create_client()
-    assert solr_client is not None
-
-@pytest.mark.asyncio
-async def test_get_or_create_client_with_specific_collection(client):
+async def test_get_or_create_client_with_collection(client):
     """Test getting Solr client with specific collection."""
     solr_client = await client._get_or_create_client("test_collection")
     assert solr_client is not None
 
 @pytest.mark.asyncio
-async def test_get_or_create_client_no_collection_no_default(mock_config):
-    """Test error when no collection specified and no default configured."""
-    mock_config.default_collection = None
-    client = SolrClient(config=mock_config)
-    with pytest.raises(SolrError):
-        await client._get_or_create_client()
+async def test_get_or_create_client_with_different_collection(client):
+    """Test getting Solr client with a different collection."""
+    solr_client = await client._get_or_create_client("another_collection")
+    assert solr_client is not None
 
 @pytest.mark.asyncio
-async def test_list_collections_success(client, mock_response):
+async def test_get_or_create_client_no_collection(mock_config):
+    """Test error when no collection specified."""
+    client = SolrClient(config=mock_config)
+    with pytest.raises(SolrError):
+        await client._get_or_create_client(None)
+
+@pytest.mark.asyncio
+async def test_list_collections_success(client):
     """Test successful collection listing."""
-    mock_response.json.return_value = {
+    # Create a mock response for the request
+    mock_resp = Mock(spec=requests.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
         "collections": ["test_collection"]
     }
-    with patch('requests.get', return_value=mock_response):
+    
+    # Use the mock in the test
+    with patch('requests.get', return_value=mock_resp):
         result = await client.list_collections()
         assert result == ["test_collection"]
 
 @pytest.mark.asyncio
-async def test_list_fields_schema_error(client, mock_response, mock_error_response):
+async def test_list_fields_schema_error(client):
     """Test schema error handling in list_fields."""
-    with patch('requests.get', side_effect=[mock_response, mock_error_response]):
+    # Create a successful response for the first call
+    mock_resp = Mock(spec=requests.Response)
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "collections": ["test_collection"]
+    }
+    
+    # Create an error response for the second call
+    mock_error = Mock(spec=requests.Response)
+    mock_error.status_code = 500
+    mock_error.text = "Schema error"
+    
+    with patch('requests.get', side_effect=[mock_resp, mock_error]):
         with pytest.raises(SolrError):
             await client.list_fields("test_collection")
 

@@ -49,6 +49,25 @@ async def test_get_embedding_success(provider, mock_response):
     with patch('requests.post', return_value=mock_response):
         result = await provider.get_vector("test text")
         assert result == [0.1, 0.2, 0.3]
+        
+@pytest.mark.asyncio
+async def test_get_embedding_with_model(provider):
+    """Test embedding generation with specific model."""
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"embedding": [0.1, 0.2, 0.3]}
+    mock_response.raise_for_status = Mock()
+    
+    with patch('requests.post') as mock_post:
+        mock_post.return_value = mock_response
+        result = await provider.get_vector("test text", "custom-model")
+        assert result == [0.1, 0.2, 0.3]
+        
+        # Verify the correct model was used
+        call_args = mock_post.call_args[1]
+        sent_data = call_args['json']
+        assert sent_data['model'] == 'custom-model'
+        assert sent_data['prompt'] == 'test text'
 
 @pytest.mark.asyncio
 async def test_get_embedding_retry_success(provider, mock_response):
@@ -71,7 +90,8 @@ async def test_get_embedding_all_retries_fail(provider):
     with patch('requests.post', return_value=fail_response):
         with pytest.raises(Exception) as exc_info:
             await provider.get_vector("test text")
-        assert "Failed to get vector after" in str(exc_info.value)
+        # Update to match new error message format which includes model name
+        assert "Failed to get vector with model" in str(exc_info.value) and "after" in str(exc_info.value)
 
 @pytest.mark.asyncio
 async def test_execute_vector_search_success(provider):

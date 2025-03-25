@@ -9,6 +9,7 @@ from .solr_list_fields import execute_list_fields
 from .solr_select import execute_select_query
 from .solr_vector_select import execute_vector_select_query
 from .solr_semantic_select import execute_semantic_select_query
+from .solr_default_vectorizer import get_default_text_vectorizer
 
 __all__ = [
     "execute_list_collections",
@@ -16,6 +17,7 @@ __all__ = [
     "execute_select_query",
     "execute_vector_select_query",
     "execute_semantic_select_query",
+    "get_default_text_vectorizer",
 ]
 
 TOOLS_DEFINITION = [

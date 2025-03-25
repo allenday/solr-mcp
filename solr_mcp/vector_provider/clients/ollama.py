@@ -1,6 +1,6 @@
 """Ollama vector provider implementation."""
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import requests
 from loguru import logger
 
@@ -26,11 +26,12 @@ class OllamaVectorProvider(VectorSearchProvider):
         self.retries = retries
         logger.info(f"Initialized Ollama vector provider with model={model} at {base_url} (timeout={timeout}s, retries={retries})")
 
-    async def get_vector(self, text: str) -> List[float]:
+    async def get_vector(self, text: str, model: Optional[str] = None) -> List[float]:
         """Get vector for a single text.
         
         Args:
             text: Text to get vector for
+            model: Optional model to use for vectorization (overrides default)
             
         Returns:
             List of floats representing the text vector
@@ -40,10 +41,12 @@ class OllamaVectorProvider(VectorSearchProvider):
         """
         url = f"{self.base_url}{OLLAMA_EMBEDDINGS_PATH}"
         data = {
-            "model": self.model,
+            "model": model or self.model,
             "prompt": text
         }
-
+        
+        actual_model = data["model"]
+        
         for attempt in range(self.retries + 1):
             try:
                 response = requests.post(url, json=data, timeout=self.timeout)
@@ -51,15 +54,16 @@ class OllamaVectorProvider(VectorSearchProvider):
                 return response.json()["embedding"]
             except Exception as e:
                 if attempt == self.retries:
-                    raise Exception(f"Failed to get vector after {self.retries} retries: {str(e)}")
-                logger.warning(f"Failed to get vector (attempt {attempt + 1}/{self.retries + 1}): {str(e)}")
+                    raise Exception(f"Failed to get vector with model {actual_model} after {self.retries} retries: {str(e)}")
+                logger.warning(f"Failed to get vector with model {actual_model} (attempt {attempt + 1}/{self.retries + 1}): {str(e)}")
                 continue
 
-    async def get_vectors(self, texts: List[str]) -> List[List[float]]:
+    async def get_vectors(self, texts: List[str], model: Optional[str] = None) -> List[List[float]]:
         """Get vector for multiple texts.
         
         Args:
             texts: List of texts to get vector for
+            model: Optional model to use for vectorization (overrides default)
             
         Returns:
             List of vectors (list of floats)
@@ -69,7 +73,7 @@ class OllamaVectorProvider(VectorSearchProvider):
         """
         results = []
         for text in texts:
-            vector = await self.get_vector(text)
+            vector = await self.get_vector(text, model)
             results.append(vector)
         return results
 

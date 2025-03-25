@@ -34,11 +34,17 @@ class VectorManager(VectorSearchProvider):
         self.client = client or OllamaVectorProvider()
         self.default_top_k = default_top_k
         
-    async def get_vector(self, text: str) -> List[float]:
+    async def get_vector(
+        self, 
+        text: str, 
+        vector_provider_config: Optional[Dict[str, Any]] = None
+    ) -> List[float]:
         """Get vector vector for text.
         
         Args:
             text: Text to get vector for
+            vector_provider_config: Optional configuration for vector provider
+                Can include 'model', 'base_url', etc.
             
         Returns:
             Vector as list of floats
@@ -47,10 +53,40 @@ class VectorManager(VectorSearchProvider):
             SolrError: If vector fails
         """
         if not self.client:
-            raise SolrError("Vector operations unavailable - no Ollama client")
+            raise SolrError("Vector operations unavailable - no vector provider client")
             
         try:
-            vector = await self.client.get_vector(text)
+            # Create temporary client with custom config if needed
+            if vector_provider_config and (
+                "model" in vector_provider_config or
+                "base_url" in vector_provider_config
+            ):
+                # Create a config with defaults from the existing client
+                temp_config = {
+                    "model": self.client.model,
+                    "base_url": self.client.base_url,
+                    "timeout": self.client.timeout,
+                    "retries": self.client.retries
+                }
+                # Override with provided config
+                temp_config.update(vector_provider_config)
+                
+                # Create temporary client
+                from solr_mcp.vector_provider import OllamaVectorProvider
+                temp_client = OllamaVectorProvider(
+                    model=temp_config["model"],
+                    base_url=temp_config["base_url"],
+                    timeout=temp_config["timeout"],
+                    retries=temp_config["retries"]
+                )
+                
+                # Use temporary client to get vector
+                vector = await temp_client.get_vector(text)
+            else:
+                # Use the default client
+                model = vector_provider_config.get("model") if vector_provider_config else None
+                vector = await self.client.get_vector(text, model)
+                
             return vector
         except Exception as e:
             raise SolrError(f"Error getting vector: {str(e)}")

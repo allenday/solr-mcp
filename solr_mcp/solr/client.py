@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pysolr
 import requests
@@ -21,6 +21,7 @@ from solr_mcp.solr.vector import VectorManager, VectorSearchResults
 from solr_mcp.solr.interfaces import CollectionProvider, VectorSearchProvider
 from solr_mcp.solr.zookeeper import ZooKeeperCollectionProvider
 from solr_mcp.vector_provider import OllamaVectorProvider
+from solr_mcp.vector_provider.constants import MODEL_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -61,33 +62,31 @@ class SolrClient:
         # Initialize query builder
         self.query_builder = query_builder or QueryBuilder(field_manager=self.field_manager)
 
-        # Initialize vector manager
+        # Initialize vector manager with default top_k of 10
         self.vector_manager = VectorManager(
             self,
             self.vector_provider,
-            self.config.default_top_k
+            10  # Default value for top_k
         )
 
         # Initialize Solr client
         self._solr_client = solr_client
-        self._default_collection = self.config.default_collection
+        self._default_collection = None
 
-    async def _get_or_create_client(self, collection: Optional[str] = None) -> pysolr.Solr:
+    async def _get_or_create_client(self, collection: str) -> pysolr.Solr:
         """Get or create a Solr client for the given collection.
         
         Args:
-            collection: Optional collection name to use. If not provided, uses default collection.
+            collection: Collection name to use.
             
         Returns:
             Configured Solr client
             
         Raises:
-            SolrError: If no collection is specified and no default collection is configured
+            SolrError: If no collection is specified
         """
         if not collection:
-            if not self._default_collection:
-                raise SolrError("No collection specified and no default collection configured")
-            collection = self._default_collection
+            raise SolrError("No collection specified")
 
         if not self._solr_client:
             self._solr_client = pysolr.Solr(
@@ -333,12 +332,37 @@ class SolrClient:
         self,
         query: str,
         text: str,
-        field: str
+        field: str,
+        vector_provider_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Execute SQL query filtered by semantic similarity."""
+        """Execute SQL query filtered by semantic similarity.
+        
+        Args:
+            query: SQL query to execute
+            text: Search text to convert to vector
+            field: Name of the DenseVector field to search against
+            vector_provider_config: Optional configuration for the vector provider
+                                    Can include 'model', 'base_url', etc.
+            
+        Returns:
+            Query results
+            
+        Raises:
+            SolrError: If search fails
+            QueryError: If query execution fails
+        """
         try:
-            # Get vector
-            vector = await self.vector_manager.get_vector(text)
+            # Parse and validate query to get collection name
+            ast, collection, _ = self.query_builder.parse_and_validate_select(query)
+            
+            # Extract model from config if present
+            model = vector_provider_config.get("model") if vector_provider_config else None
+            
+            # Validate field exists and get its dimension
+            field_info = await self._validate_vector_field_dimension(collection, field, model)
+            
+            # Get vector using the vector provider configuration
+            vector = await self.vector_manager.get_vector(text, vector_provider_config)
             
             # Reuse vector query logic
             return await self.execute_vector_select_query(query, vector, field)
@@ -346,3 +370,77 @@ class SolrClient:
             if isinstance(e, (QueryError, SolrError)):
                 raise
             raise SolrError(f"Semantic search failed: {str(e)}")
+            
+    async def _validate_vector_field_dimension(self, collection: str, field: str, vector_provider_model: Optional[str] = None) -> Dict[str, Any]:
+        """Validate that the vector field exists and its dimension matches the vectorizer.
+        
+        Args:
+            collection: Collection name
+            field: Field name to validate
+            vectorizer: Optional vectorizer model name
+            
+        Returns:
+            Field information dictionary
+            
+        Raises:
+            SolrError: If validation fails
+        """
+        # Initialize cache if needed
+        if not hasattr(self.field_manager, '_vector_field_cache'):
+            self.field_manager._vector_field_cache = {}
+            
+        # Check cache first
+        cache_key = f"{collection}:{field}"
+        if cache_key in self.field_manager._vector_field_cache:
+            field_info = self.field_manager._vector_field_cache[cache_key]
+            logger.debug(f"Using cached field info for {cache_key}")
+            return field_info
+            
+        try:
+            # Get collection fields
+            fields = await self.list_fields(collection)
+            
+            # Find the specified field
+            field_info = next((f for f in fields if f['name'] == field), None)
+            if not field_info:
+                raise SolrError(f"Field '{field}' does not exist in collection '{collection}'")
+                
+            # Check if field is a dense_vector type
+            field_type = field_info.get('type')
+            if field_type != 'dense_vector':
+                raise SolrError(f"Field '{field}' is not a dense_vector field (type: {field_type})")
+                
+            # Get field dimension
+            vector_dimension = None
+            if 'vectorDimension' in field_info:
+                vector_dimension = field_info['vectorDimension']
+            else:
+                # Look for the field type in schema
+                field_types = [f for f in fields if f.get('class') == 'solr.DenseVectorField' and f.get('name') == field_type]
+                if field_types and 'vectorDimension' in field_types[0]:
+                    vector_dimension = field_types[0]['vectorDimension']
+            
+            if not vector_dimension:
+                raise SolrError(f"Could not determine vector dimension for field '{field}'")
+                
+            # Get vector provider model dimension
+            model_name = vector_provider_model or self.vector_manager.client.model
+            model_dimension = MODEL_DIMENSIONS.get(model_name)
+            if not model_dimension:
+                raise SolrError(f"Unknown vector dimension for model '{model_name}'")
+                
+            # Validate dimensions match
+            if int(vector_dimension) != model_dimension:
+                raise SolrError(
+                    f"Vector dimension mismatch: field '{field}' has dimension {vector_dimension}, "
+                    f"but model '{model_name}' produces vectors with dimension {model_dimension}"
+                )
+                
+            # Cache the result
+            self.field_manager._vector_field_cache[cache_key] = field_info
+            return field_info
+            
+        except SolrError:
+            raise
+        except Exception as e:
+            raise SolrError(f"Error validating vector field dimension: {str(e)}")

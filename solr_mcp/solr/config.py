@@ -21,23 +21,10 @@ class SolrConfig(BaseModel):
     zookeeper_hosts: List[str] = Field(
         description="List of ZooKeeper hosts"
     )
-    default_collection: Optional[str] = Field(
-        default=None,
-        description="Default collection to use"
-    )
     connection_timeout: int = Field(
         default=10,
         gt=0,
         description="Connection timeout in seconds"
-    )
-    vector_field: str = Field(
-        default="vector",
-        description="Default vector field name"
-    )
-    default_top_k: int = Field(
-        default=10,
-        gt=0,
-        description="Default number of results to return"
     )
     
     def __init__(self, **data):
@@ -54,8 +41,6 @@ class SolrConfig(BaseModel):
                     field = error["loc"][0]
                     if field == "connection_timeout":
                         raise ConfigurationError("connection_timeout must be positive")
-                    elif field == "default_top_k":
-                        raise ConfigurationError("default_top_k must be positive")
             # If we get here, it's some other validation error
             raise ConfigurationError(str(e))
     
@@ -92,9 +77,6 @@ class SolrConfig(BaseModel):
         if self.connection_timeout <= 0:
             raise ConfigurationError("connection_timeout must be positive")
             
-        if self.default_top_k <= 0:
-            raise ConfigurationError("default_top_k must be positive")
-            
         return self
         
     @classmethod
@@ -126,8 +108,6 @@ class SolrConfig(BaseModel):
                         field = error["loc"][0]
                         if field == "connection_timeout":
                             raise ConfigurationError("connection_timeout must be positive")
-                        elif field == "default_top_k":
-                            raise ConfigurationError("default_top_k must be positive")
                 # If we get here, it's some other validation error
                 raise ConfigurationError(str(e))
                 
@@ -160,7 +140,5 @@ class SolrConfig(BaseModel):
                     field = error["loc"][0]
                     if field == "connection_timeout":
                         raise ConfigurationError("connection_timeout must be positive")
-                    elif field == "default_top_k":
-                        raise ConfigurationError("default_top_k must be positive")
             # If we get here, it's some other validation error
             raise ConfigurationError(str(e)) 

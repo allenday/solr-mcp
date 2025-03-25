@@ -19,10 +19,7 @@ def valid_config_dict() -> Dict[str, Any]:
     return {
         "solr_base_url": "http://localhost:8983/solr",
         "zookeeper_hosts": ["localhost:2181"],
-        "default_collection": "test",
-        "connection_timeout": 10,
-        "vector_field": "vector",
-        "default_top_k": 10
+        "connection_timeout": 10
     }
 
 @pytest.fixture
@@ -41,10 +38,7 @@ class TestSolrConfig:
         config = SolrConfig(**valid_config_dict)
         assert config.solr_base_url == valid_config_dict["solr_base_url"]
         assert config.zookeeper_hosts == valid_config_dict["zookeeper_hosts"]
-        assert config.default_collection == valid_config_dict["default_collection"]
         assert config.connection_timeout == valid_config_dict["connection_timeout"]
-        assert config.vector_field == valid_config_dict["vector_field"]
-        assert config.default_top_k == valid_config_dict["default_top_k"]
 
     def test_init_with_minimal_config(self):
         """Test initialization with minimal required configuration."""
@@ -54,10 +48,7 @@ class TestSolrConfig:
         )
         assert config.solr_base_url == "http://localhost:8983/solr"
         assert config.zookeeper_hosts == ["localhost:2181"]
-        assert config.default_collection is None
         assert config.connection_timeout == 10
-        assert config.vector_field == "vector"
-        assert config.default_top_k == 10
 
     def test_init_missing_required_fields(self):
         """Test initialization with missing required fields."""
@@ -112,26 +103,12 @@ class TestSolrConfig:
                 connection_timeout=0
             )
 
-        with pytest.raises(ConfigurationError, match="default_top_k must be positive"):
-            SolrConfig(
-                solr_base_url="http://localhost:8983/solr",
-                zookeeper_hosts=["localhost:2181"],
-                default_top_k=0
-            )
-
         # Test negative values
         with pytest.raises(ConfigurationError, match="connection_timeout must be positive"):
             SolrConfig(
                 solr_base_url="http://localhost:8983/solr",
                 zookeeper_hosts=["localhost:2181"],
                 connection_timeout=-1
-            )
-
-        with pytest.raises(ConfigurationError, match="default_top_k must be positive"):
-            SolrConfig(
-                solr_base_url="http://localhost:8983/solr",
-                zookeeper_hosts=["localhost:2181"],
-                default_top_k=-1
             )
 
     def test_validate_config(self):
@@ -150,14 +127,6 @@ class TestSolrConfig:
                 solr_base_url="http://localhost:8983/solr",
                 zookeeper_hosts=["localhost:2181"],
                 connection_timeout=0
-            )
-
-        # Test invalid default_top_k
-        with pytest.raises(ConfigurationError, match="default_top_k must be positive"):
-            SolrConfig(
-                solr_base_url="http://localhost:8983/solr",
-                zookeeper_hosts=["localhost:2181"],
-                default_top_k=0
             )
 
     def test_load_from_file(self, temp_config_file):
@@ -245,11 +214,8 @@ class TestSolrConfig:
         data = {
             "solr_base_url": "http://localhost:8983/solr",
             "zookeeper_hosts": ["localhost:2181"],
-            "connection_timeout": "20",  # String that should be converted to int
-            "default_top_k": "5"  # String that should be converted to int
+            "connection_timeout": "20"  # String that should be converted to int
         }
         result = config.model_validate(data)
         assert isinstance(result.connection_timeout, int)
-        assert isinstance(result.default_top_k, int)
         assert result.connection_timeout == 20
-        assert result.default_top_k == 5

@@ -121,7 +121,69 @@ class TestSemanticSelectTool:
         
         # Verify result
         assert result == {"rows": [{"id": "1"}]}
-        mock_solr_client.execute_semantic_select_query.assert_called_once_with(query, text, field)
+        # Update assertion to account for empty vector_provider_config parameter
+        mock_solr_client.execute_semantic_select_query.assert_called_once_with(query, text, field, {})
+        
+    async def test_execute_semantic_select_query_with_vector_provider(self, mock_server_instance):
+        """Test semantic select query execution with vector provider parameter."""
+        # Setup mock
+        mock_solr_client = AsyncMock()
+        mock_solr_client.execute_semantic_select_query.return_value = {
+            "rows": [{"id": "1"}]
+        }
+        mock_server_instance.solr_client = mock_solr_client
+        
+        # Execute tool with vector provider parameter
+        query = "SELECT * FROM collection1"
+        text = "sample search text"
+        field = "vector_field"
+        vector_provider = "custom-model@test-host:9999"
+        
+        result = await execute_semantic_select_query(
+            mock_server_instance, query, text, field, vector_provider
+        )
+        
+        # Verify result
+        assert result == {"rows": [{"id": "1"}]}
+        
+        # Check that we're passing the correct config to the client
+        expected_config = {
+            "model": "custom-model",
+            "base_url": "http://test-host:9999"
+        }
+        mock_solr_client.execute_semantic_select_query.assert_called_once_with(
+            query, text, field, expected_config
+        )
+    
+    async def test_execute_semantic_select_query_with_model_only(self, mock_server_instance):
+        """Test semantic select query execution with model only."""
+        # Setup mock
+        mock_solr_client = AsyncMock()
+        mock_solr_client.execute_semantic_select_query.return_value = {
+            "rows": [{"id": "1"}]
+        }
+        mock_server_instance.solr_client = mock_solr_client
+        
+        # Execute tool with just the model
+        query = "SELECT * FROM collection1"
+        text = "sample search text"
+        field = "vector_field"
+        vector_provider = "custom-model"
+        
+        result = await execute_semantic_select_query(
+            mock_server_instance, query, text, field, vector_provider
+        )
+        
+        # Verify result
+        assert result == {"rows": [{"id": "1"}]}
+        
+        # Check that only the model is set in the config
+        expected_config = {
+            "model": "custom-model"
+        }
+        mock_solr_client.execute_semantic_select_query.assert_called_once_with(
+            query, text, field, expected_config
+        )
         
 class TestToolMetadata:
     """Test tool metadata."""

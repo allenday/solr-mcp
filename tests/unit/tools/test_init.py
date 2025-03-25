@@ -8,6 +8,7 @@ from solr_mcp.tools import (
     execute_select_query,
     execute_vector_select_query,
     execute_semantic_select_query,
+    get_default_text_vectorizer,
     TOOLS_DEFINITION
 )
 
@@ -20,6 +21,7 @@ def test_tools_definition():
         "solr_select": execute_select_query,
         "solr_vector_select": execute_vector_select_query,
         "solr_semantic_select": execute_semantic_select_query,
+        "get_default_text_vectorizer": get_default_text_vectorizer,
     }
     
     assert len(TOOLS_DEFINITION) == len(tools)
@@ -37,6 +39,7 @@ def test_tools_exports():
         "execute_select_query",
         "execute_vector_select_query",
         "execute_semantic_select_query",
+        "get_default_text_vectorizer",
     }
     
     assert set(__all__) == expected 

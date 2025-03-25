@@ -7,11 +7,12 @@ class VectorProvider(ABC):
     """Interface for generating vectors for semantic search."""
 
     @abstractmethod
-    async def get_vector(self, text: str) -> List[float]:
+    async def get_vector(self, text: str, model: Optional[str] = None) -> List[float]:
         """Get vector for a single text.
         
         Args:
             text: Text to generate vector for
+            model: Optional model name to use (overrides default)
             
         Returns:
             List of floats representing the vector
@@ -23,11 +24,12 @@ class VectorProvider(ABC):
         pass
 
     @abstractmethod
-    async def get_vectors(self, texts: List[str]) -> List[List[float]]:
+    async def get_vectors(self, texts: List[str], model: Optional[str] = None) -> List[List[float]]:
         """Get vectors for multiple texts.
         
         Args:
             texts: List of texts to generate vectors for
+            model: Optional model name to use (overrides default)
             
         Returns:
             List of vectors (list of floats)
